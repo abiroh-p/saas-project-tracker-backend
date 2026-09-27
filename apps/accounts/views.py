@@ -3,8 +3,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
-from .serializers import LoginSerializer, RegistrationSerializer ,LogoutSerializer
 
+from .serializers import (
+    LoginSerializer,
+    LogoutSerializer,
+    ProfileSerializer,
+    RegistrationSerializer,
+)
 
 class RegistrationView(APIView):
 
@@ -87,6 +92,38 @@ class LogoutView(APIView):
                 {
                     "message": "Logout successful."
                 },
+                status=status.HTTP_200_OK,
+            )
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class ProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        serializer = ProfileSerializer(request.user)
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
+        )
+
+    def patch(self, request):
+        serializer = ProfileSerializer(
+            request.user,
+            data=request.data,
+            partial=True,
+        )
+
+        if serializer.is_valid():
+            serializer.save()
+
+            return Response(
+                serializer.data,
                 status=status.HTTP_200_OK,
             )
 

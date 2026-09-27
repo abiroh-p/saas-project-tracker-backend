@@ -90,3 +90,19 @@ class LogoutSerializer(serializers.Serializer):
             )
 
         return attrs
+
+
+class ProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = (
+            "id",
+            "username",
+            "email",
+            "role",
+        )
+        read_only_fields = (
+            "id",
+            "username",
+            "role",
+        )
