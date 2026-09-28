@@ -1,10 +1,10 @@
+from django.contrib.auth import authenticate
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
-from django.contrib.auth import authenticate
-from rest_framework_simplejwt.tokens import RefreshToken
-from .services.registration import register_user
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from .services.password import change_password
+from .services.registration import register_user
 
 User = get_user_model()
 
@@ -106,3 +106,46 @@ class ProfileSerializer(serializers.ModelSerializer):
             "username",
             "role",
         )
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    current_password = serializers.CharField(
+        write_only=True,
+    )
+    new_password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+    )
+    new_password_confirm = serializers.CharField(
+        write_only=True,
+        min_length=8,
+    )
+
+    def validate(self, attrs):
+        user = self.context["request"].user
+
+        if not user.check_password(attrs["current_password"]):
+            raise serializers.ValidationError(
+                {
+                    "current_password": "Current password is incorrect."
+                }
+            )
+
+        if attrs["new_password"] != attrs["new_password_confirm"]:
+            raise serializers.ValidationError(
+                {
+                    "new_password_confirm": "Passwords do not match."
+                }
+            )
+
+        return attrs
+
+    def save(self):
+        user = self.context["request"].user
+
+        change_password(
+            user=user,
+            new_password=self.validated_data["new_password"],
+        )
+
+        return user
