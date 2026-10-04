@@ -27,4 +27,8 @@ urlpatterns = [
     TokenRefreshView.as_view(),
     name="token_refresh",
 ),
+    path(
+    'api/v1/projects/',
+    include('apps.projects.urls'),
+),
 ]
