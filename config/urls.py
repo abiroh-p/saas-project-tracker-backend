@@ -31,4 +31,8 @@ urlpatterns = [
     'api/v1/projects/',
     include('apps.projects.urls'),
 ),
+    path(
+    'api/v1/issues/',
+    include('apps.issues.urls'),
+),
 ]
