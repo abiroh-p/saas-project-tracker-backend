@@ -1,4 +1,5 @@
 from django.urls import path
+from apps.issues.views import ProjectIssueListCreateView
 
 from .views import (
     ProjectArchiveView,
@@ -23,4 +24,9 @@ urlpatterns = [
         ProjectArchiveView.as_view(),
         name='project-archive',
     ),
+    path(
+        '<int:project_id>/issues/',
+        ProjectIssueListCreateView.as_view(),
+        name='project-issue-list-create',
+),
 ]
