@@ -1,9 +1,9 @@
 from datetime import date
-
 from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from apps.projects.models import Project, ProjectMember
 
 User = get_user_model()
 
@@ -227,3 +227,131 @@ class ProjectAPITestCase(APITestCase):
             detail_response.status_code,
             status.HTTP_404_NOT_FOUND,
         )
+
+    def test_project_creation_creates_manager_membership(self):
+        response = self.client.post(
+            '/api/v1/projects/',
+            {
+                'key': 'TEST',
+                'name': 'Test Project',
+            },
+            format='json',
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        project = Project.objects.get(
+            key='TEST'
+        )
+
+        membership = ProjectMember.objects.get(
+            project=project,
+            user=self.user,
+        )
+
+        self.assertEqual(
+            membership.role,
+            ProjectMember.Role.PROJECT_MANAGER,
+        )
+
+    def test_non_member_cannot_view_project(self):
+        project = Project.objects.create(
+            key='PRIVATE',
+            name='Private Project',
+            created_by=self.user,
+        )
+
+        other_user = User.objects.create_user(
+            username='otheruser',
+            password='TestPassword123',
+        )
+
+        response = self.client.post(
+            '/api/v1/accounts/login/',
+            {
+                'username': 'otheruser',
+                'password': 'TestPassword123',
+            },
+            format='json',
+        )
+
+        other_access_token = response.data['access']
+
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f'Bearer {other_access_token}'
+        )
+
+        response = self.client.get(
+            f'/api/v1/projects/{project.id}/'
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_project_key_cannot_be_changed(self):
+        project = Project.objects.create(
+            key='IMMUT',
+            name='Immutable Project',
+            created_by=self.user,
+        )
+
+        ProjectMember.objects.create(
+            project=project,
+            user=self.user,
+            role=ProjectMember.Role.PROJECT_MANAGER,
+        )
+
+        response = self.client.patch(
+            f'/api/v1/projects/{project.id}/',
+            {
+                'key': 'CHANGED',
+            },
+            format='json',
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertIn(
+            'key',
+            response.data,
+        )
+
+        project.refresh_from_db()
+
+        self.assertEqual(
+            project.key,
+            'IMMUT',
+        )
+
+    def test_last_project_manager_cannot_be_removed_or_demoted(self):
+        project = Project.objects.create(
+            key='MANAGER',
+            name='Manager Test Project',
+            created_by=self.user,
+        )
+
+        membership = ProjectMember.objects.create(
+            project=project,
+            user=self.user,
+            role=ProjectMember.Role.PROJECT_MANAGER,
+        )
+
+        from apps.projects.services.membership import (
+            ensure_not_last_project_manager,
+        )
+
+        with self.assertRaisesMessage(
+            ValueError,
+            'A project must have at least one project manager.',
+        ):
+            ensure_not_last_project_manager(
+                membership=membership
+            )
