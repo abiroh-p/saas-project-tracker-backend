@@ -5,6 +5,8 @@ from rest_framework.views import APIView
 
 from .models import Project
 from .serializers import ProjectSerializer
+from .services.membership import is_project_manager
+
 from .services.project import (
     archive_project,
     create_project,
@@ -17,8 +19,9 @@ class ProjectListCreateView(APIView):
 
     def get(self, request):
         projects = Project.objects.filter(
-            is_archived=False
-        ).order_by('-created_at')
+            members__user=request.user,
+            is_archived=False,
+        ).distinct().order_by('-created_at')
 
         serializer = ProjectSerializer(
             projects,
@@ -50,15 +53,19 @@ class ProjectListCreateView(APIView):
 class ProjectDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get_object(self, project_id):
+    def get_object(self, project_id, user):
         return Project.objects.get(
             id=project_id,
+            members__user=user,
             is_archived=False,
         )
 
     def get(self, request, project_id):
         try:
-            project = self.get_object(project_id)
+            project = self.get_object(
+                project_id,
+                request.user,
+            )
         except Project.DoesNotExist:
             return Response(
                 {'detail': 'Project not found.'},
@@ -71,11 +78,28 @@ class ProjectDetailView(APIView):
 
     def patch(self, request, project_id):
         try:
-            project = self.get_object(project_id)
+            project = self.get_object(
+                project_id,
+                request.user,
+            )
         except Project.DoesNotExist:
             return Response(
                 {'detail': 'Project not found.'},
                 status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not is_project_manager(
+            project=project,
+            user=request.user,
+        ):
+            return Response(
+                {
+                    'detail': (
+                        'Only project managers can '
+                        'update a project.'
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
             )
 
         serializer = ProjectSerializer(
@@ -96,7 +120,6 @@ class ProjectDetailView(APIView):
         return Response(response_serializer.data)
 
 
-
 class ProjectArchiveView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -104,12 +127,27 @@ class ProjectArchiveView(APIView):
         try:
             project = Project.objects.get(
                 id=project_id,
+                members__user=request.user,
                 is_archived=False,
             )
         except Project.DoesNotExist:
             return Response(
                 {'detail': 'Project not found.'},
                 status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not is_project_manager(
+            project=project,
+            user=request.user,
+        ):
+            return Response(
+                {
+                    'detail': (
+                        'Only project managers can '
+                        'archive a project.'
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
             )
 
         archive_project(project=project)
