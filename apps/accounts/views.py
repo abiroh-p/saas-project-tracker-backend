@@ -7,6 +7,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from config.responses import api_error
+
 from .serializers import (
     ChangePasswordSerializer,
     LoginSerializer,
@@ -21,26 +23,21 @@ class RegistrationView(APIView):
     @extend_schema(request=RegistrationSerializer, responses={201: OpenApiTypes.OBJECT})
     def post(self, request):
         serializer = RegistrationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        if serializer.is_valid():
-            user = serializer.save()
-
-            return Response(
-                {
-                    "message": "User registered successfully.",
-                    "user": {
-                        "id": user.id,
-                        "username": user.username,
-                        "email": user.email,
-                        "role": user.role,
-                    },
-                },
-                status=status.HTTP_201_CREATED,
-            )
+        user = serializer.save()
 
         return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST,
+            {
+                "message": "User registered successfully.",
+                "user": {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "role": user.role,
+                },
+            },
+            status=status.HTTP_201_CREATED,
         )
 
 
@@ -48,27 +45,22 @@ class LoginView(APIView):
     @extend_schema(request=LoginSerializer, responses={200: OpenApiTypes.OBJECT})
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        if serializer.is_valid():
-            user = serializer.validated_data["user"]
-
-            return Response(
-                {
-                    "access": serializer.validated_data["access"],
-                    "refresh": serializer.validated_data["refresh"],
-                    "user": {
-                        "id": user.id,
-                        "username": user.username,
-                        "email": user.email,
-                        "role": user.role,
-                    },
-                },
-                status=status.HTTP_200_OK,
-            )
+        user = serializer.validated_data["user"]
 
         return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST,
+            {
+                "access": serializer.validated_data["access"],
+                "refresh": serializer.validated_data["refresh"],
+                "user": {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "role": user.role,
+                },
+            },
+            status=status.HTTP_200_OK,
         )
 
 
@@ -95,18 +87,13 @@ class LogoutView(APIView):
     @extend_schema(request=LogoutSerializer, responses={200: OpenApiTypes.OBJECT})
     def post(self, request):
         serializer = LogoutSerializer(data=request.data)
-
-        if serializer.is_valid():
-            return Response(
-                {
-                    "message": "Logout successful."
-                },
-                status=status.HTTP_200_OK,
-            )
+        serializer.is_valid(raise_exception=True)
 
         return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST,
+            {
+                "message": "Logout successful."
+            },
+            status=status.HTTP_200_OK,
         )
 
 
@@ -129,18 +116,12 @@ class ProfileView(APIView):
             data=request.data,
             partial=True,
         )
-
-        if serializer.is_valid():
-            serializer.save()
-
-            return Response(
-                serializer.data,
-                status=status.HTTP_200_OK,
-            )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
 
         return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST,
+            serializer.data,
+            status=status.HTTP_200_OK,
         )
 
 
@@ -153,20 +134,14 @@ class ChangePasswordView(APIView):
             data=request.data,
             context={"request": request},
         )
-
-        if serializer.is_valid():
-            serializer.save()
-
-            return Response(
-                {
-                    "message": "Password changed successfully."
-                },
-                status=status.HTTP_200_OK,
-            )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
 
         return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST,
+            {
+                "message": "Password changed successfully."
+            },
+            status=status.HTTP_200_OK,
         )
 
 
@@ -180,9 +155,10 @@ class UserSearchView(APIView):
         term = request.query_params.get("search", "").strip()
 
         if len(term) < 2:
-            return Response(
-                {"detail": "Search term must be at least 2 characters."},
-                status=status.HTTP_400_BAD_REQUEST,
+            return api_error(
+                "Search term must be at least 2 characters.",
+                'bad_request',
+                status.HTTP_400_BAD_REQUEST,
             )
 
         User = get_user_model()

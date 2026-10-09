@@ -6,6 +6,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from config.responses import api_error
+
 from .models import Project, ProjectMember
 from .serializers import (
     AddProjectMemberSerializer,
@@ -86,9 +88,10 @@ class ProjectDetailView(APIView):
                 request.user,
             )
         except Project.DoesNotExist:
-            return Response(
-                {'detail': 'Project not found.'},
-                status=status.HTTP_404_NOT_FOUND,
+            return api_error(
+                'Project not found.',
+                'not_found',
+                status.HTTP_404_NOT_FOUND,
             )
 
         serializer = ProjectSerializer(project, context={'request': request})
@@ -103,23 +106,20 @@ class ProjectDetailView(APIView):
                 request.user,
             )
         except Project.DoesNotExist:
-            return Response(
-                {'detail': 'Project not found.'},
-                status=status.HTTP_404_NOT_FOUND,
+            return api_error(
+                'Project not found.',
+                'not_found',
+                status.HTTP_404_NOT_FOUND,
             )
 
         if not is_project_manager(
             project=project,
             user=request.user,
         ):
-            return Response(
-                {
-                    'detail': (
-                        'Only project managers can '
-                        'update a project.'
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN,
+            return api_error(
+                'Only project managers can update a project.',
+                'permission_denied',
+                status.HTTP_403_FORBIDDEN,
             )
 
         serializer = ProjectSerializer(
@@ -153,23 +153,20 @@ class ProjectArchiveView(APIView):
                 is_archived=False,
             )
         except Project.DoesNotExist:
-            return Response(
-                {'detail': 'Project not found.'},
-                status=status.HTTP_404_NOT_FOUND,
+            return api_error(
+                'Project not found.',
+                'not_found',
+                status.HTTP_404_NOT_FOUND,
             )
 
         if not is_project_manager(
             project=project,
             user=request.user,
         ):
-            return Response(
-                {
-                    'detail': (
-                        'Only project managers can '
-                        'archive a project.'
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN,
+            return api_error(
+                'Only project managers can archive a project.',
+                'permission_denied',
+                status.HTTP_403_FORBIDDEN,
             )
 
         archive_project(project=project)
@@ -215,9 +212,10 @@ class ProjectMemberListCreateView(APIView):
         project = _get_member_project(project_id, request.user)
 
         if not is_project_manager(project=project, user=request.user):
-            return Response(
-                {'detail': 'Only project managers can add members.'},
-                status=status.HTTP_403_FORBIDDEN,
+            return api_error(
+                'Only project managers can add members.',
+                'permission_denied',
+                status.HTTP_403_FORBIDDEN,
             )
 
         serializer = AddProjectMemberSerializer(data=request.data)
@@ -230,9 +228,10 @@ class ProjectMemberListCreateView(APIView):
                 role=serializer.validated_data['role'],
             )
         except ValueError as exc:
-            return Response(
-                {'detail': str(exc)},
-                status=status.HTTP_400_BAD_REQUEST,
+            return api_error(
+                str(exc),
+                'bad_request',
+                status.HTTP_400_BAD_REQUEST,
             )
 
         return Response(
@@ -256,9 +255,10 @@ class ProjectMemberDetailView(APIView):
         project = _get_member_project(project_id, request.user)
 
         if not is_project_manager(project=project, user=request.user):
-            return Response(
-                {'detail': 'Only project managers can change roles.'},
-                status=status.HTTP_403_FORBIDDEN,
+            return api_error(
+                'Only project managers can change roles.',
+                'permission_denied',
+                status.HTTP_403_FORBIDDEN,
             )
 
         membership = self.get_membership(project, member_id)
@@ -272,9 +272,10 @@ class ProjectMemberDetailView(APIView):
                 role=serializer.validated_data['role'],
             )
         except ValueError as exc:
-            return Response(
-                {'detail': str(exc)},
-                status=status.HTTP_400_BAD_REQUEST,
+            return api_error(
+                str(exc),
+                'bad_request',
+                status.HTTP_400_BAD_REQUEST,
             )
 
         return Response(ProjectMemberSerializer(membership).data)
@@ -294,21 +295,19 @@ class ProjectMemberDetailView(APIView):
         )
 
         if not is_manager and not is_self:
-            return Response(
-                {
-                    'detail': (
-                        'Only project managers can remove other members.'
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN,
+            return api_error(
+                'Only project managers can remove other members.',
+                'permission_denied',
+                status.HTTP_403_FORBIDDEN,
             )
 
         try:
             remove_project_member(membership=membership)
         except ValueError as exc:
-            return Response(
-                {'detail': str(exc)},
-                status=status.HTTP_400_BAD_REQUEST,
+            return api_error(
+                str(exc),
+                'bad_request',
+                status.HTTP_400_BAD_REQUEST,
             )
 
         return Response(status=status.HTTP_204_NO_CONTENT)

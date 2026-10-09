@@ -170,7 +170,7 @@ class ProjectAPITestCase(APITestCase):
 
         self.assertIn(
             'end_date',
-            response.data,
+            response.data['errors'],
         )
 
     def test_archive_project(self):
@@ -321,7 +321,7 @@ class ProjectAPITestCase(APITestCase):
 
         self.assertIn(
             'key',
-            response.data,
+            response.data['errors'],
         )
 
         project.refresh_from_db()
@@ -398,6 +398,32 @@ class ProjectMembershipAPITestCase(APITestCase):
 
         response = self.client.get('/api/v1/projects/')
         self.assertEqual(response.data[0]['my_role'], 'TEAM_MEMBER')
+
+    def test_validation_error_shape(self):
+        self.login(self.manager)
+
+        response = self.client.post('/api/v1/projects/', {}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['detail'], 'Validation failed.')
+        self.assertEqual(response.data['code'], 'validation_error')
+        self.assertIn('key', response.data['errors'])
+
+    def test_not_found_error_shape(self):
+        self.login(self.manager)
+
+        response = self.client.get('/api/v1/projects/99999/')
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn('detail', response.data)
+        self.assertIn('code', response.data)
+
+    def test_unauthenticated_error_shape(self):
+        response = self.client.get('/api/v1/projects/')
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertIn('detail', response.data)
+        self.assertIn('code', response.data)
 
     def test_member_can_list_members(self):
         self.login(self.member)
