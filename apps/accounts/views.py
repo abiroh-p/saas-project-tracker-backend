@@ -15,6 +15,7 @@ from .serializers import (
     LogoutSerializer,
     ProfileSerializer,
     RegistrationSerializer,
+    UserSerializer,
 )
 
 
@@ -30,12 +31,7 @@ class RegistrationView(APIView):
         return Response(
             {
                 "message": "User registered successfully.",
-                "user": {
-                    "id": user.id,
-                    "username": user.username,
-                    "email": user.email,
-                    "role": user.role,
-                },
+                "user": UserSerializer(user).data,
             },
             status=status.HTTP_201_CREATED,
         )
@@ -53,12 +49,7 @@ class LoginView(APIView):
             {
                 "access": serializer.validated_data["access"],
                 "refresh": serializer.validated_data["refresh"],
-                "user": {
-                    "id": user.id,
-                    "username": user.username,
-                    "email": user.email,
-                    "role": user.role,
-                },
+                "user": UserSerializer(user).data,
             },
             status=status.HTTP_200_OK,
         )
@@ -67,17 +58,10 @@ class LoginView(APIView):
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(responses=ProfileSerializer)
+    @extend_schema(responses=UserSerializer)
     def get(self, request):
-        user = request.user
-
         return Response(
-            {
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "role": user.role,
-            },
+            UserSerializer(request.user).data,
             status=status.HTTP_200_OK,
         )
 

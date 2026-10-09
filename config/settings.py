@@ -167,6 +167,7 @@ SPECTACULAR_SETTINGS = {
     "SERVE_INCLUDE_SCHEMA": False,
     "ENUM_NAME_OVERRIDES": {
         "ProjectRoleEnum": "apps.projects.models.ProjectMember.Role",
+        "UserRoleEnum": "apps.accounts.models.User.Role",
     },
 }
 SIMPLE_JWT = {
