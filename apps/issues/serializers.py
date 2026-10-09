@@ -5,7 +5,7 @@ from .models import Issue
 
 
 class IssueSerializer(serializers.ModelSerializer):
-    issue_key = serializers.ReadOnlyField()
+    issue_key = serializers.CharField(read_only=True)
 
     reporter = serializers.ReadOnlyField(
         source='reporter.username',

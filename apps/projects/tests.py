@@ -90,12 +90,12 @@ class ProjectAPITestCase(APITestCase):
         )
 
         self.assertEqual(
-            len(response.data),
+            len(response.data['results']),
             1,
         )
 
         self.assertEqual(
-            response.data[0]['key'],
+            response.data['results'][0]['key'],
             'TEST',
         )
 
@@ -211,7 +211,7 @@ class ProjectAPITestCase(APITestCase):
 
         project_ids = [
             project['id']
-            for project in list_response.data
+            for project in list_response.data['results']
         ]
 
         self.assertNotIn(
@@ -397,7 +397,7 @@ class ProjectMembershipAPITestCase(APITestCase):
         self.assertEqual(response.data['my_role'], 'TEAM_MEMBER')
 
         response = self.client.get('/api/v1/projects/')
-        self.assertEqual(response.data[0]['my_role'], 'TEAM_MEMBER')
+        self.assertEqual(response.data['results'][0]['my_role'], 'TEAM_MEMBER')
 
     def test_validation_error_shape(self):
         self.login(self.manager)

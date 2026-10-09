@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 from .pagination import IssuePagination
 
 from config.responses import api_error
+from config.schema import paginated
 
 from apps.projects.models import Project
 from apps.projects.services.membership import (
@@ -39,7 +40,17 @@ class ProjectIssueListCreateView(APIView):
             ).distinct()
         )
 
-    @extend_schema(parameters=[OpenApiParameter('status', str), OpenApiParameter('priority', str), OpenApiParameter('issue_type', str), OpenApiParameter('assignee', int), OpenApiParameter('page', int), OpenApiParameter('page_size', int)], responses=IssueSerializer(many=True))
+    @extend_schema(
+        parameters=[
+            OpenApiParameter('status', str),
+            OpenApiParameter('priority', str),
+            OpenApiParameter('issue_type', str),
+            OpenApiParameter('assignee', int),
+            OpenApiParameter('page', int),
+            OpenApiParameter('page_size', int),
+        ],
+        responses=paginated(IssueSerializer),
+    )
     def get(self, request, project_id):
         project = self.get_project(project_id, request.user)
 

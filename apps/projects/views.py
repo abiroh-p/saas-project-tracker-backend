@@ -2,11 +2,13 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from django.shortcuts import get_object_or_404
 from rest_framework import status
+from .pagination import ProjectPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from config.responses import api_error
+from config.schema import paginated
 
 from .models import Project, ProjectMember
 from .serializers import (
@@ -33,22 +35,40 @@ from .services.project import (
 class ProjectListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(responses=ProjectSerializer(many=True))
+    @extend_schema(
+        operation_id='projects_list',
+        responses=paginated(ProjectSerializer),
+    )
     def get(self, request):
-        projects = Project.objects.filter(
-            members__user=request.user,
-            is_archived=False,
-        ).distinct().order_by('-created_at').prefetch_related('members')
+        projects = (
+            Project.objects.filter(
+                members__user=request.user,
+                is_archived=False,
+            )
+            .distinct()
+            .order_by('-created_at', '-id')
+            .prefetch_related('members')
+        )
+
+        paginator = ProjectPagination()
+        page = paginator.paginate_queryset(
+            projects,
+            request,
+            view=self,
+        )
 
         serializer = ProjectSerializer(
-            projects,
+            page,
             many=True,
             context={'request': request},
         )
 
-        return Response(serializer.data)
+        return paginator.get_paginated_response(serializer.data)
 
-    @extend_schema(request=ProjectSerializer, responses={201: ProjectSerializer})
+    @extend_schema(
+        request=ProjectSerializer,
+        responses={201: ProjectSerializer},
+    )
     def post(self, request):
         serializer = ProjectSerializer(
             data=request.data,
@@ -62,7 +82,10 @@ class ProjectListCreateView(APIView):
             user=request.user,
         )
 
-        response_serializer = ProjectSerializer(project, context={'request': request})
+        response_serializer = ProjectSerializer(
+            project,
+            context={'request': request},
+        )
 
         return Response(
             response_serializer.data,
@@ -80,7 +103,10 @@ class ProjectDetailView(APIView):
             is_archived=False,
         )
 
-    @extend_schema(responses=ProjectSerializer)
+    @extend_schema(
+        operation_id='project_retrieve',
+        responses=ProjectSerializer,
+    )
     def get(self, request, project_id):
         try:
             project = self.get_object(

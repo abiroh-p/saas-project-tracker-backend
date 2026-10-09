@@ -319,16 +319,7 @@ paths:
           description: ''
   /api/v1/projects/:
     get:
-      operationId: v1_projects_retrieve
-      parameters:
-      - in: query
-        name: page
-        schema:
-          type: integer
-      - in: query
-        name: page_size
-        schema:
-          type: integer
+      operationId: projects_list
       tags:
       - v1
       security:
@@ -367,7 +358,7 @@ paths:
           description: ''
   /api/v1/projects/{project_id}/:
     get:
-      operationId: v1_projects_retrieve_2
+      operationId: project_retrieve
       parameters:
       - in: path
         name: project_id
