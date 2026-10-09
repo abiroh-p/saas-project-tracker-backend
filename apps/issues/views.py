@@ -1,3 +1,5 @@
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -35,6 +37,7 @@ class ProjectIssueListCreateView(APIView):
             ).distinct()
         )
 
+    @extend_schema(parameters=[OpenApiParameter('status', str), OpenApiParameter('priority', str), OpenApiParameter('issue_type', str), OpenApiParameter('assignee', int), OpenApiParameter('page', int), OpenApiParameter('page_size', int)], responses=IssueSerializer(many=True))
     def get(self, request, project_id):
         project = self.get_project(project_id, request.user)
 
@@ -125,6 +128,7 @@ class ProjectIssueListCreateView(APIView):
             serializer.data
         )
 
+    @extend_schema(request=IssueSerializer, responses={201: IssueSerializer})
     def post(self, request, project_id):
         project = self.get_project(
             project_id,
@@ -191,6 +195,7 @@ class IssueDetailView(APIView):
             )
         )
 
+    @extend_schema(responses=IssueSerializer)
     def get(self, request, issue_id):
         issue = self.get_object(
             issue_id,
@@ -201,6 +206,7 @@ class IssueDetailView(APIView):
 
         return Response(serializer.data)
 
+    @extend_schema(request=IssueSerializer, responses=IssueSerializer)
     def patch(self, request, issue_id):
         issue = self.get_object(
             issue_id,
@@ -241,6 +247,7 @@ class IssueDetailView(APIView):
 class IssueArchiveView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(request=None, responses=IssueSerializer)
     def post(self, request, issue_id):
         issue = get_object_or_404(
             Issue.objects
@@ -274,6 +281,7 @@ class IssueArchiveView(APIView):
 class IssueTransitionView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(request=IssueTransitionSerializer, responses=IssueSerializer)
     def post(self, request, issue_id):
         issue = get_object_or_404(
             Issue.objects

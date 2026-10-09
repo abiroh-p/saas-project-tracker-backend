@@ -1,3 +1,6 @@
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
+from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -15,6 +18,7 @@ from .serializers import (
 
 class RegistrationView(APIView):
 
+    @extend_schema(request=RegistrationSerializer, responses={201: OpenApiTypes.OBJECT})
     def post(self, request):
         serializer = RegistrationSerializer(data=request.data)
 
@@ -41,6 +45,7 @@ class RegistrationView(APIView):
 
 
 class LoginView(APIView):
+    @extend_schema(request=LoginSerializer, responses={200: OpenApiTypes.OBJECT})
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
 
@@ -70,6 +75,7 @@ class LoginView(APIView):
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(responses=ProfileSerializer)
     def get(self, request):
         user = request.user
 
@@ -86,6 +92,7 @@ class MeView(APIView):
 class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(request=LogoutSerializer, responses={200: OpenApiTypes.OBJECT})
     def post(self, request):
         serializer = LogoutSerializer(data=request.data)
 
@@ -106,6 +113,7 @@ class LogoutView(APIView):
 class ProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(responses=ProfileSerializer)
     def get(self, request):
         serializer = ProfileSerializer(request.user)
 
@@ -114,6 +122,7 @@ class ProfileView(APIView):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(request=ProfileSerializer, responses=ProfileSerializer)
     def patch(self, request):
         serializer = ProfileSerializer(
             request.user,
@@ -138,6 +147,7 @@ class ProfileView(APIView):
 class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(request=ChangePasswordSerializer, responses={200: OpenApiTypes.OBJECT})
     def post(self, request):
         serializer = ChangePasswordSerializer(
             data=request.data,
@@ -157,4 +167,31 @@ class ChangePasswordView(APIView):
         return Response(
             serializer.errors,
             status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class UserSearchView(APIView):
+    """Search active users by username (for member / assignee pickers)."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(parameters=[OpenApiParameter('search', str, required=True)], responses={200: OpenApiTypes.OBJECT})
+    def get(self, request):
+        term = request.query_params.get("search", "").strip()
+
+        if len(term) < 2:
+            return Response(
+                {"detail": "Search term must be at least 2 characters."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        User = get_user_model()
+        users = (
+            User.objects
+            .filter(is_active=True, username__icontains=term)
+            .order_by("username")[:10]
+        )
+
+        return Response(
+            [{"id": u.id, "username": u.username} for u in users]
         )

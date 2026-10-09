@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .models import Issue
@@ -18,6 +19,23 @@ class IssueSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
 
+    reporter_detail = serializers.SerializerMethodField()
+    assignee_detail = serializers.SerializerMethodField()
+
+    def _user_brief(self, user):
+        if user is None:
+            return None
+
+        return {'id': user.id, 'username': user.username}
+
+    @extend_schema_field({'type': 'object', 'nullable': True, 'properties': {'id': {'type': 'integer'}, 'username': {'type': 'string'}}})
+    def get_reporter_detail(self, obj):
+        return self._user_brief(obj.reporter)
+
+    @extend_schema_field({'type': 'object', 'nullable': True, 'properties': {'id': {'type': 'integer'}, 'username': {'type': 'string'}}})
+    def get_assignee_detail(self, obj):
+        return self._user_brief(obj.assignee)
+
     class Meta:
         model = Issue
         fields = [
@@ -32,6 +50,8 @@ class IssueSerializer(serializers.ModelSerializer):
             'status',
             'reporter',
             'assignee',
+            'reporter_detail',
+            'assignee_detail',
             'due_date',
             'created_at',
             'updated_at',
