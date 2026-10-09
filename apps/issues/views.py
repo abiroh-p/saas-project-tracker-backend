@@ -1,9 +1,14 @@
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from .pagination import IssuePagination
+
+from config.responses import api_error
+from config.schema import paginated
 
 from apps.projects.models import Project
 from apps.projects.services.membership import (
@@ -35,6 +40,17 @@ class ProjectIssueListCreateView(APIView):
             ).distinct()
         )
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter('status', str),
+            OpenApiParameter('priority', str),
+            OpenApiParameter('issue_type', str),
+            OpenApiParameter('assignee', int),
+            OpenApiParameter('page', int),
+            OpenApiParameter('page_size', int),
+        ],
+        responses=paginated(IssueSerializer),
+    )
     def get(self, request, project_id):
         project = self.get_project(project_id, request.user)
 
@@ -72,30 +88,34 @@ class ProjectIssueListCreateView(APIView):
         }
 
         if status_filter and status_filter not in valid_statuses:
-            return Response(
-                {'detail': 'Invalid status filter.'},
-                status=status.HTTP_400_BAD_REQUEST,
+            return api_error(
+                'Invalid status filter.',
+                'bad_request',
+                status.HTTP_400_BAD_REQUEST,
             )
 
         if priority_filter and priority_filter not in valid_priorities:
-            return Response(
-                {'detail': 'Invalid priority filter.'},
-                status=status.HTTP_400_BAD_REQUEST,
+            return api_error(
+                'Invalid priority filter.',
+                'bad_request',
+                status.HTTP_400_BAD_REQUEST,
             )
 
         if issue_type_filter and issue_type_filter not in valid_issue_types:
-            return Response(
-                {'detail': 'Invalid issue type filter.'},
-                status=status.HTTP_400_BAD_REQUEST,
+            return api_error(
+                'Invalid issue type filter.',
+                'bad_request',
+                status.HTTP_400_BAD_REQUEST,
             )
 
         if assignee_filter:
             try:
                 assignee_id = int(assignee_filter)
             except (TypeError, ValueError):
-                return Response(
-                    {'detail': 'Invalid assignee filter.'},
-                    status=status.HTTP_400_BAD_REQUEST,
+                return api_error(
+                    'Invalid assignee filter.',
+                    'bad_request',
+                    status.HTTP_400_BAD_REQUEST,
                 )
         else:
             assignee_id = None
@@ -125,6 +145,7 @@ class ProjectIssueListCreateView(APIView):
             serializer.data
         )
 
+    @extend_schema(request=IssueSerializer, responses={201: IssueSerializer})
     def post(self, request, project_id):
         project = self.get_project(
             project_id,
@@ -137,13 +158,10 @@ class ProjectIssueListCreateView(APIView):
         )
 
         if membership.role == membership.Role.VIEWER:
-            return Response(
-                {
-                    'detail': (
-                        'Viewers cannot create issues.'
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN,
+            return api_error(
+                'Viewers cannot create issues.',
+                'permission_denied',
+                status.HTTP_403_FORBIDDEN,
             )
 
         serializer = IssueSerializer(
@@ -161,9 +179,10 @@ class ProjectIssueListCreateView(APIView):
                 user=request.user,
             )
         except ValueError as exc:
-            return Response(
-                {'detail': str(exc)},
-                status=status.HTTP_400_BAD_REQUEST,
+            return api_error(
+                str(exc),
+                'bad_request',
+                status.HTTP_400_BAD_REQUEST,
             )
 
         response_serializer = IssueSerializer(issue)
@@ -191,6 +210,7 @@ class IssueDetailView(APIView):
             )
         )
 
+    @extend_schema(responses=IssueSerializer)
     def get(self, request, issue_id):
         issue = self.get_object(
             issue_id,
@@ -201,6 +221,7 @@ class IssueDetailView(APIView):
 
         return Response(serializer.data)
 
+    @extend_schema(request=IssueSerializer, responses=IssueSerializer)
     def patch(self, request, issue_id):
         issue = self.get_object(
             issue_id,
@@ -224,14 +245,16 @@ class IssueDetailView(APIView):
                 user=request.user,
             )
         except PermissionError as exc:
-            return Response(
-                {'detail': str(exc)},
-                status=status.HTTP_403_FORBIDDEN,
+            return api_error(
+                str(exc),
+                'permission_denied',
+                status.HTTP_403_FORBIDDEN,
             )
         except ValueError as exc:
-            return Response(
-                {'detail': str(exc)},
-                status=status.HTTP_400_BAD_REQUEST,
+            return api_error(
+                str(exc),
+                'bad_request',
+                status.HTTP_400_BAD_REQUEST,
             )
 
         response_serializer = IssueSerializer(issue)
@@ -241,6 +264,7 @@ class IssueDetailView(APIView):
 class IssueArchiveView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(request=None, responses=IssueSerializer)
     def post(self, request, issue_id):
         issue = get_object_or_404(
             Issue.objects
@@ -258,14 +282,16 @@ class IssueArchiveView(APIView):
                 user=request.user,
             )
         except PermissionError as exc:
-            return Response(
-                {'detail': str(exc)},
-                status=status.HTTP_403_FORBIDDEN,
+            return api_error(
+                str(exc),
+                'permission_denied',
+                status.HTTP_403_FORBIDDEN,
             )
         except ValueError as exc:
-            return Response(
-                {'detail': str(exc)},
-                status=status.HTTP_400_BAD_REQUEST,
+            return api_error(
+                str(exc),
+                'bad_request',
+                status.HTTP_400_BAD_REQUEST,
             )
 
         serializer = IssueSerializer(issue)
@@ -274,6 +300,7 @@ class IssueArchiveView(APIView):
 class IssueTransitionView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(request=IssueTransitionSerializer, responses=IssueSerializer)
     def post(self, request, issue_id):
         issue = get_object_or_404(
             Issue.objects
@@ -297,14 +324,16 @@ class IssueTransitionView(APIView):
                 new_status=serializer.validated_data['status'],
             )
         except PermissionError as exc:
-            return Response(
-                {'detail': str(exc)},
-                status=status.HTTP_403_FORBIDDEN,
+            return api_error(
+                str(exc),
+                'permission_denied',
+                status.HTTP_403_FORBIDDEN,
             )
         except ValueError as exc:
-            return Response(
-                {'detail': str(exc)},
-                status=status.HTTP_400_BAD_REQUEST,
+            return api_error(
+                str(exc),
+                'bad_request',
+                status.HTTP_400_BAD_REQUEST,
             )
 
         response_serializer = IssueSerializer(issue)

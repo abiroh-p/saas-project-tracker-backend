@@ -90,12 +90,12 @@ class ProjectAPITestCase(APITestCase):
         )
 
         self.assertEqual(
-            len(response.data),
+            len(response.data['results']),
             1,
         )
 
         self.assertEqual(
-            response.data[0]['key'],
+            response.data['results'][0]['key'],
             'TEST',
         )
 
@@ -170,7 +170,7 @@ class ProjectAPITestCase(APITestCase):
 
         self.assertIn(
             'end_date',
-            response.data,
+            response.data['errors'],
         )
 
     def test_archive_project(self):
@@ -211,7 +211,7 @@ class ProjectAPITestCase(APITestCase):
 
         project_ids = [
             project['id']
-            for project in list_response.data
+            for project in list_response.data['results']
         ]
 
         self.assertNotIn(
@@ -321,7 +321,7 @@ class ProjectAPITestCase(APITestCase):
 
         self.assertIn(
             'key',
-            response.data,
+            response.data['errors'],
         )
 
         project.refresh_from_db()
@@ -355,3 +355,229 @@ class ProjectAPITestCase(APITestCase):
             ensure_not_last_project_manager(
                 membership=membership
             )
+
+class ProjectMembershipAPITestCase(APITestCase):
+
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username='manager', password='TestPassword123',
+        )
+        self.member = User.objects.create_user(
+            username='member', password='TestPassword123',
+        )
+        self.outsider = User.objects.create_user(
+            username='outsider', password='TestPassword123',
+        )
+
+        self.project = Project.objects.create(
+            key='MEM', name='Members', created_by=self.manager,
+        )
+        self.manager_membership = ProjectMember.objects.create(
+            project=self.project,
+            user=self.manager,
+            role=ProjectMember.Role.PROJECT_MANAGER,
+        )
+        self.member_membership = ProjectMember.objects.create(
+            project=self.project,
+            user=self.member,
+            role=ProjectMember.Role.TEAM_MEMBER,
+        )
+
+        self.members_url = f'/api/v1/projects/{self.project.id}/members/'
+
+    def login(self, user):
+        self.client.force_authenticate(user=user)
+
+    def test_project_includes_my_role(self):
+        self.login(self.member)
+
+        response = self.client.get(f'/api/v1/projects/{self.project.id}/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['my_role'], 'TEAM_MEMBER')
+
+        response = self.client.get('/api/v1/projects/')
+        self.assertEqual(response.data['results'][0]['my_role'], 'TEAM_MEMBER')
+
+    def test_validation_error_shape(self):
+        self.login(self.manager)
+
+        response = self.client.post('/api/v1/projects/', {}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['detail'], 'Validation failed.')
+        self.assertEqual(response.data['code'], 'validation_error')
+        self.assertIn('key', response.data['errors'])
+
+    def test_not_found_error_shape(self):
+        self.login(self.manager)
+
+        response = self.client.get('/api/v1/projects/99999/')
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn('detail', response.data)
+        self.assertIn('code', response.data)
+
+    def test_unauthenticated_error_shape(self):
+        response = self.client.get('/api/v1/projects/')
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertIn('detail', response.data)
+        self.assertIn('code', response.data)
+
+    def test_member_can_list_members(self):
+        self.login(self.member)
+
+        response = self.client.get(self.members_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
+        self.assertEqual(response.data[0]['username'], 'manager')
+
+    def test_outsider_cannot_list_members(self):
+        self.login(self.outsider)
+
+        response = self.client.get(self.members_url)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_manager_can_add_member(self):
+        self.login(self.manager)
+
+        response = self.client.post(
+            self.members_url,
+            {'user_id': self.outsider.id, 'role': 'VIEWER'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['role'], 'VIEWER')
+        self.assertTrue(
+            ProjectMember.objects.filter(
+                project=self.project, user=self.outsider,
+            ).exists()
+        )
+
+    def test_member_cannot_add_member(self):
+        self.login(self.member)
+
+        response = self.client.post(
+            self.members_url,
+            {'user_id': self.outsider.id},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_cannot_add_duplicate_member(self):
+        self.login(self.manager)
+
+        response = self.client.post(
+            self.members_url,
+            {'user_id': self.member.id},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_cannot_add_unknown_user(self):
+        self.login(self.manager)
+
+        response = self.client.post(
+            self.members_url, {'user_id': 99999}, format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_manager_can_change_role(self):
+        self.login(self.manager)
+
+        response = self.client.patch(
+            f'{self.members_url}{self.member_membership.id}/',
+            {'role': 'VIEWER'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.member_membership.refresh_from_db()
+        self.assertEqual(self.member_membership.role, 'VIEWER')
+
+    def test_cannot_demote_last_manager(self):
+        self.login(self.manager)
+
+        response = self.client.patch(
+            f'{self.members_url}{self.manager_membership.id}/',
+            {'role': 'TEAM_MEMBER'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_manager_can_remove_member_and_unassigns_issues(self):
+        from apps.issues.models import Issue
+
+        issue = Issue.objects.create(
+            project=self.project,
+            issue_number=1,
+            title='Assigned',
+            reporter=self.manager,
+            assignee=self.member,
+        )
+
+        self.login(self.manager)
+
+        response = self.client.delete(
+            f'{self.members_url}{self.member_membership.id}/'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        issue.refresh_from_db()
+        self.assertIsNone(issue.assignee)
+
+    def test_member_can_leave_but_not_remove_others(self):
+        self.login(self.member)
+
+        response = self.client.delete(
+            f'{self.members_url}{self.manager_membership.id}/'
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        response = self.client.delete(
+            f'{self.members_url}{self.member_membership.id}/'
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_cannot_remove_last_manager(self):
+        self.login(self.manager)
+
+        response = self.client.delete(
+            f'{self.members_url}{self.manager_membership.id}/'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_issue_includes_user_details(self):
+        from apps.issues.models import Issue
+
+        issue = Issue.objects.create(
+            project=self.project,
+            issue_number=1,
+            title='Detail',
+            reporter=self.manager,
+            assignee=self.member,
+        )
+
+        self.login(self.manager)
+
+        response = self.client.get(f'/api/v1/issues/{issue.id}/')
+
+        self.assertEqual(
+            response.data['assignee_detail'],
+            {'id': self.member.id, 'username': 'member'},
+        )
+        self.assertEqual(
+            response.data['reporter_detail'],
+            {'id': self.manager.id, 'username': 'manager'},
+        )
+        self.assertEqual(response.data['reporter'], 'manager')
+        self.assertEqual(response.data['assignee'], self.member.id)

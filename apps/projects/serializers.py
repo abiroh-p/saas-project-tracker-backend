@@ -1,12 +1,19 @@
 from rest_framework import serializers
 
-from .models import Project
+from django.contrib.auth import get_user_model
+from drf_spectacular.utils import extend_schema_field
+
+from .models import Project, ProjectMember
+
+User = get_user_model()
 
 
 class ProjectSerializer(serializers.ModelSerializer):
     created_by = serializers.ReadOnlyField(
         source='created_by.username'
     )
+
+    my_role = serializers.SerializerMethodField()
 
     class Meta:
         model = Project
@@ -21,6 +28,7 @@ class ProjectSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
             'is_archived',
+            'my_role',
         ]
 
         read_only_fields = [
@@ -29,6 +37,24 @@ class ProjectSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         ]
+
+    @extend_schema_field(
+        serializers.ChoiceField(
+            choices=ProjectMember.Role.choices,
+            allow_null=True,
+        )
+    )
+    def get_my_role(self, obj):
+        request = self.context.get('request')
+
+        if request is None or not request.user.is_authenticated:
+            return None
+
+        for member in obj.members.all():
+            if member.user_id == request.user.id:
+                return member.role
+
+        return None
 
     def validate(self, attrs):
         if (
@@ -63,3 +89,39 @@ class ProjectSerializer(serializers.ModelSerializer):
             )
 
         return attrs
+
+
+class ProjectMemberSerializer(serializers.ModelSerializer):
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    username = serializers.CharField(source='user.username', read_only=True)
+    email = serializers.EmailField(source='user.email', read_only=True)
+
+    class Meta:
+        model = ProjectMember
+        fields = [
+            'id',
+            'user_id',
+            'username',
+            'email',
+            'role',
+            'created_at',
+        ]
+        read_only_fields = fields
+
+
+class AddProjectMemberSerializer(serializers.Serializer):
+    user_id = serializers.IntegerField()
+    role = serializers.ChoiceField(
+        choices=ProjectMember.Role.choices,
+        default=ProjectMember.Role.TEAM_MEMBER,
+    )
+
+    def validate_user_id(self, value):
+        if not User.objects.filter(id=value, is_active=True).exists():
+            raise serializers.ValidationError('User not found.')
+
+        return value
+
+
+class UpdateProjectMemberRoleSerializer(serializers.Serializer):
+    role = serializers.ChoiceField(choices=ProjectMember.Role.choices)
