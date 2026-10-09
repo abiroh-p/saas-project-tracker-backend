@@ -4,33 +4,66 @@ from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .services.password import change_password
-from .services.registration import register_user
+from .services.registration import EmailAlreadyRegistered, register_user
 
 User = get_user_model()
 
 
-class RegistrationSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(
-        write_only=True,
-        min_length=8,
-    )
+EMAIL_TAKEN_MESSAGE = "An account with this email already exists."
 
-    password_confirm = serializers.CharField(
-        write_only=True,
-        min_length=8,
-    )
+
+def _email_is_taken(email, *, exclude_user=None):
+    users = User.objects.filter(email__iexact=email)
+
+    if exclude_user is not None:
+        users = users.exclude(pk=exclude_user.pk)
+
+    return users.exists()
+
+
+class UserSerializer(serializers.ModelSerializer):
+    """The user payload shared by register, login and me."""
 
     class Meta:
         model = User
         fields = (
+            "id",
             "username",
             "email",
-            "password",
-            "password_confirm",
+            "full_name",
+            "role",
         )
+        read_only_fields = fields
+
+
+class RegistrationSerializer(serializers.Serializer):
+    full_name = serializers.CharField(max_length=150)
+    email = serializers.EmailField(max_length=254)
+    password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+    )
+    # Optional: clients that confirm the password themselves can omit it.
+    password_confirm = serializers.CharField(
+        write_only=True,
+        required=False,
+    )
+
+    def validate_email(self, value):
+        value = value.strip().lower()
+
+        if _email_is_taken(value):
+            raise serializers.ValidationError(EMAIL_TAKEN_MESSAGE)
+
+        return value
 
     def validate(self, attrs):
-        if attrs["password"] != attrs["password_confirm"]:
+        password_confirm = attrs.pop("password_confirm", None)
+
+        if (
+            password_confirm is not None
+            and password_confirm != attrs["password"]
+        ):
             raise serializers.ValidationError(
                 {"password_confirm": "Passwords do not match."}
             )
@@ -38,29 +71,48 @@ class RegistrationSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        validated_data.pop("password_confirm")
-
-        return register_user(**validated_data)
+        try:
+            return register_user(**validated_data)
+        except EmailAlreadyRegistered:
+            raise serializers.ValidationError(
+                {"email": EMAIL_TAKEN_MESSAGE}
+            )
 
 
 class LoginSerializer(serializers.Serializer):
-    username = serializers.CharField()
+    identifier = serializers.CharField(required=False)
+    # Deprecated alias for `identifier`, kept so existing clients keep working.
+    username = serializers.CharField(required=False, write_only=True)
     password = serializers.CharField(
         write_only=True,
     )
 
     def validate(self, attrs):
-        username = attrs.get("username")
+        identifier = attrs.get("identifier") or attrs.get("username")
+
+        if not identifier:
+            raise serializers.ValidationError(
+                {"identifier": "This field is required."}
+            )
+
         password = attrs.get("password")
 
+        # Accept either a username or an email address.
+        found = (
+            User.objects.filter(username=identifier).first()
+            or User.objects.filter(email__iexact=identifier).order_by("id").first()
+        )
+
+        # Always call authenticate(), even when nobody matched, so a wrong
+        # identifier costs the same as a wrong password.
         user = authenticate(
-            username=username,
+            username=found.username if found else identifier,
             password=password,
         )
 
         if user is None:
             raise serializers.ValidationError(
-                "Invalid username or password."
+                "Invalid email/username or password."
             )
 
         if not user.is_active:
@@ -93,12 +145,16 @@ class LogoutSerializer(serializers.Serializer):
 
 
 class ProfileSerializer(serializers.ModelSerializer):
+    full_name = serializers.CharField(max_length=150)
+    email = serializers.EmailField(max_length=254)
+
     class Meta:
         model = User
         fields = (
             "id",
             "username",
             "email",
+            "full_name",
             "role",
         )
         read_only_fields = (
@@ -106,6 +162,14 @@ class ProfileSerializer(serializers.ModelSerializer):
             "username",
             "role",
         )
+
+    def validate_email(self, value):
+        value = value.strip().lower()
+
+        if _email_is_taken(value, exclude_user=self.instance):
+            raise serializers.ValidationError(EMAIL_TAKEN_MESSAGE)
+
+        return value
 
 
 class ChangePasswordSerializer(serializers.Serializer):

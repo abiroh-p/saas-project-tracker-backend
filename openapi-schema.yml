@@ -98,7 +98,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Profile'
+                $ref: '#/components/schemas/User'
           description: ''
   /api/v1/accounts/profile/:
     get:
@@ -746,14 +746,16 @@ components:
     Login:
       type: object
       properties:
+        identifier:
+          type: string
         username:
           type: string
+          writeOnly: true
         password:
           type: string
           writeOnly: true
       required:
       - password
-      - username
     Logout:
       type: object
       properties:
@@ -889,16 +891,15 @@ components:
           description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
             only.
         email:
-          title: Email address
-          oneOf:
-          - type: string
-            format: email
-            maxLength: 254
-          - type: string
-            maxLength: 0
+          type: string
+          format: email
+          maxLength: 254
+        full_name:
+          type: string
+          maxLength: 150
         role:
           allOf:
-          - $ref: '#/components/schemas/ProfileRoleEnum'
+          - $ref: '#/components/schemas/UserRoleEnum'
           readOnly: true
     PatchedProject:
       type: object
@@ -972,31 +973,22 @@ components:
           description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
             only.
         email:
-          title: Email address
-          oneOf:
-          - type: string
-            format: email
-            maxLength: 254
-          - type: string
-            maxLength: 0
+          type: string
+          format: email
+          maxLength: 254
+        full_name:
+          type: string
+          maxLength: 150
         role:
           allOf:
-          - $ref: '#/components/schemas/ProfileRoleEnum'
+          - $ref: '#/components/schemas/UserRoleEnum'
           readOnly: true
       required:
+      - email
+      - full_name
       - id
       - role
       - username
-    ProfileRoleEnum:
-      enum:
-      - ADMIN
-      - PROJECT_MANAGER
-      - TEAM_MEMBER
-      type: string
-      description: |-
-        * `ADMIN` - Administrator
-        * `PROJECT_MANAGER` - Project Manager
-        * `TEAM_MEMBER` - Team Member
     Project:
       type: object
       properties:
@@ -1092,20 +1084,13 @@ components:
     Registration:
       type: object
       properties:
-        username:
+        full_name:
           type: string
-          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
-            only.
-          pattern: ^[\w.@+-]+$
           maxLength: 150
         email:
-          title: Email address
-          oneOf:
-          - type: string
-            format: email
-            maxLength: 254
-          - type: string
-            maxLength: 0
+          type: string
+          format: email
+          maxLength: 254
         password:
           type: string
           writeOnly: true
@@ -1113,11 +1098,10 @@ components:
         password_confirm:
           type: string
           writeOnly: true
-          minLength: 8
       required:
+      - email
+      - full_name
       - password
-      - password_confirm
-      - username
     StatusEnum:
       enum:
       - TODO
@@ -1142,6 +1126,46 @@ components:
       required:
       - access
       - refresh
+    User:
+      type: object
+      description: The user payload shared by register, login and me.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+        email:
+          type: string
+          format: email
+          readOnly: true
+          title: Email address
+        full_name:
+          type: string
+          readOnly: true
+        role:
+          allOf:
+          - $ref: '#/components/schemas/UserRoleEnum'
+          readOnly: true
+      required:
+      - email
+      - full_name
+      - id
+      - role
+      - username
+    UserRoleEnum:
+      enum:
+      - ADMIN
+      - PROJECT_MANAGER
+      - TEAM_MEMBER
+      type: string
+      description: |-
+        * `ADMIN` - Administrator
+        * `PROJECT_MANAGER` - Project Manager
+        * `TEAM_MEMBER` - Team Member
   securitySchemes:
     jwtAuth:
       type: http
