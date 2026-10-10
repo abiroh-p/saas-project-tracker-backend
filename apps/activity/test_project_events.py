@@ -345,6 +345,16 @@ class RoleChangedEventTests(ActivityAPITestCase):
         self.assertEqual(self.manager_membership.role, 'PROJECT_MANAGER')
         self.assertFalse(Activity.objects.exists())
 
+    def test_demoting_a_member_with_open_issues_is_rejected_and_not_recorded(self):
+        self.make_issue(1, assignee=self.member)
+
+        response = self.change(self.member_membership, 'VIEWER')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.member_membership.refresh_from_db()
+        self.assertEqual(self.member_membership.role, 'TEAM_MEMBER')
+        self.assertFalse(Activity.objects.exists())
+
     def test_non_managers_cannot_change_roles(self):
         self.client.force_authenticate(user=self.member)
 

@@ -78,6 +78,23 @@ def change_member_role(*, membership, role, actor):
     if membership.role == role:
         return membership
 
+    if role == ProjectMember.Role.VIEWER:
+        from apps.issues.models import Issue
+
+        # A viewer cannot work on issues, so don't leave open ones assigned
+        # to them. Archived issues are read-only history and can stay.
+        has_open_issues = Issue.objects.filter(
+            project=membership.project,
+            assignee=membership.user,
+            is_archived=False,
+        ).exists()
+
+        if has_open_issues:
+            raise ValueError(
+                'This member has issues assigned to them. Reassign or '
+                'unassign those issues before making them a viewer.'
+            )
+
     if role != ProjectMember.Role.PROJECT_MANAGER:
         ensure_not_last_project_manager(membership=membership)
 

@@ -29,14 +29,19 @@ def create_issue(*, project, validated_data, user):
     assignee = validated_data.get('assignee')
 
     if assignee is not None:
-        is_member = ProjectMember.objects.filter(
+        assignee_membership = ProjectMember.objects.filter(
             project=project,
             user=assignee,
-        ).exists()
+        ).first()
 
-        if not is_member:
+        if assignee_membership is None:
             raise ValueError(
                 'Assignee must be a member of the project.'
+            )
+
+        if assignee_membership.role == ProjectMember.Role.VIEWER:
+            raise ValueError(
+                'Viewers cannot be assigned issues.'
             )
 
     project.issue_counter += 1
@@ -116,14 +121,25 @@ def update_issue(*, issue, validated_data, user):
     )
 
     if assignee is not None:
-        is_member = ProjectMember.objects.filter(
+        assignee_membership = ProjectMember.objects.filter(
             project=issue.project,
             user=assignee,
-        ).exists()
+        ).first()
 
-        if not is_member:
+        if assignee_membership is None:
             raise ValueError(
                 'Assignee must be a member of the project.'
+            )
+
+        # Only reject a viewer being newly assigned. Leaving an existing
+        # assignee alone must not block unrelated edits to the issue.
+        if (
+            assignee_membership.role == ProjectMember.Role.VIEWER
+            and 'assignee' in validated_data
+            and assignee != issue.assignee
+        ):
+            raise ValueError(
+                'Viewers cannot be assigned issues.'
             )
 
     # Compare against the persisted values before applying anything.

@@ -84,6 +84,7 @@ class IssueCreatedEventTests(IssueEventTestCase):
     def test_rejected_creates_record_nothing(self):
         cases = [
             (self.manager, {'assignee': self.newcomer.id}, 400),
+            (self.manager, {'assignee': self.viewer.id}, 400),
             (self.manager, {'title': ''}, 400),
             (self.viewer, {}, 403),
         ]
@@ -195,20 +196,21 @@ class IssueUpdatedEventTests(IssueEventTestCase):
         )
 
     def test_reassigning_records_the_previous_assignee(self):
+        self.add_member(self.newcomer, 'TEAM_MEMBER')
         self.issue.assignee = self.member
         self.issue.save()
 
-        self.patch({'assignee': self.viewer.id})
+        self.patch({'assignee': self.newcomer.id})
 
         event = self.only_event()
         self.assertEqual(event.action, 'ISSUE_ASSIGNED')
         self.assertEqual(
             event.metadata,
-            {'from': self.ref(self.member), 'to': self.ref(self.viewer)},
+            {'from': self.ref(self.member), 'to': self.ref(self.newcomer)},
         )
         self.assertEqual(
             event.description,
-            'manager reassigned ACT-1 from member to viewer',
+            'manager reassigned ACT-1 from member to newcomer',
         )
 
     def test_clearing_the_assignee_records_an_unassigned_event(self):
@@ -261,8 +263,10 @@ class IssueUpdatedEventTests(IssueEventTestCase):
         by_member = self.make_issue(3, reporter=self.member)
 
         cases = [
-            # Assignee must belong to the project.
+            # Assignee must belong to the project...
             (self.manager, self.issue, {'assignee': self.newcomer.id}, 400),
+            # ...and cannot be a viewer.
+            (self.manager, self.issue, {'assignee': self.viewer.id}, 400),
             # Archived issues are read-only.
             (self.manager, archived, {'priority': 'LOW'}, 400),
             # Only the reporter or assignee may edit.

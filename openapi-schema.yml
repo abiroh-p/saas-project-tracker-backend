@@ -265,6 +265,59 @@ paths:
               schema:
                 $ref: '#/components/schemas/Issue'
           description: ''
+  /api/v1/issues/{issue_id}/activity/:
+    get:
+      operationId: issue_activity_list
+      description: |-
+        Read-only history of one issue. Access follows the parent project's
+        membership, so non-members get the same 404 as for a missing issue.
+      parameters:
+      - in: query
+        name: action
+        schema:
+          type: string
+          enum:
+          - ISSUE_ARCHIVED
+          - ISSUE_ASSIGNED
+          - ISSUE_CREATED
+          - ISSUE_STATUS_CHANGED
+          - ISSUE_UNASSIGNED
+          - ISSUE_UPDATED
+          - MEMBER_ADDED
+          - MEMBER_REMOVED
+          - PROJECT_ARCHIVED
+          - PROJECT_CREATED
+          - PROJECT_UPDATED
+          - ROLE_CHANGED
+      - in: path
+        name: issue_id
+        schema:
+          type: integer
+        required: true
+      - in: query
+        name: page
+        schema:
+          type: integer
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+      - in: query
+        name: user
+        schema:
+          type: integer
+        description: Id of the user who performed the action.
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedActivity'
+          description: ''
   /api/v1/issues/{issue_id}/archive/:
     post:
       operationId: v1_issues_archive_create
@@ -405,6 +458,72 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Project'
+          description: ''
+  /api/v1/projects/{project_id}/activity/:
+    get:
+      operationId: project_activity_list
+      description: |-
+        Read-only history of a project. Any current member may read it,
+        including viewers, members who joined later, and archived projects.
+      parameters:
+      - in: query
+        name: action
+        schema:
+          type: string
+          enum:
+          - ISSUE_ARCHIVED
+          - ISSUE_ASSIGNED
+          - ISSUE_CREATED
+          - ISSUE_STATUS_CHANGED
+          - ISSUE_UNASSIGNED
+          - ISSUE_UPDATED
+          - MEMBER_ADDED
+          - MEMBER_REMOVED
+          - PROJECT_ARCHIVED
+          - PROJECT_CREATED
+          - PROJECT_UPDATED
+          - ROLE_CHANGED
+      - in: query
+        name: entity_id
+        schema:
+          type: integer
+        description: Requires entity_type.
+      - in: query
+        name: entity_type
+        schema:
+          type: string
+          enum:
+          - ISSUE
+          - MEMBERSHIP
+          - PROJECT
+      - in: query
+        name: page
+        schema:
+          type: integer
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+      - in: path
+        name: project_id
+        schema:
+          type: integer
+        required: true
+      - in: query
+        name: user
+        schema:
+          type: integer
+        description: Id of the user who performed the action.
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedActivity'
           description: ''
   /api/v1/projects/{project_id}/archive/:
     post:
@@ -613,6 +732,75 @@ paths:
           description: No response body
 components:
   schemas:
+    ActionEnum:
+      enum:
+      - PROJECT_CREATED
+      - PROJECT_UPDATED
+      - PROJECT_ARCHIVED
+      - MEMBER_ADDED
+      - MEMBER_REMOVED
+      - ROLE_CHANGED
+      - ISSUE_CREATED
+      - ISSUE_UPDATED
+      - ISSUE_ASSIGNED
+      - ISSUE_UNASSIGNED
+      - ISSUE_STATUS_CHANGED
+      - ISSUE_ARCHIVED
+      type: string
+      description: |-
+        * `PROJECT_CREATED` - Project created
+        * `PROJECT_UPDATED` - Project updated
+        * `PROJECT_ARCHIVED` - Project archived
+        * `MEMBER_ADDED` - Member added
+        * `MEMBER_REMOVED` - Member removed
+        * `ROLE_CHANGED` - Role changed
+        * `ISSUE_CREATED` - Issue created
+        * `ISSUE_UPDATED` - Issue updated
+        * `ISSUE_ASSIGNED` - Issue assigned
+        * `ISSUE_UNASSIGNED` - Issue unassigned
+        * `ISSUE_STATUS_CHANGED` - Issue status changed
+        * `ISSUE_ARCHIVED` - Issue archived
+    Activity:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        user:
+          type: object
+          properties:
+            id:
+              type: integer
+            username:
+              type: string
+          required:
+          - id
+          - username
+          readOnly: true
+        action:
+          $ref: '#/components/schemas/ActionEnum'
+        entity_type:
+          $ref: '#/components/schemas/EntityTypeEnum'
+        entity_id:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        description:
+          type: string
+        metadata: {}
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - action
+      - created_at
+      - description
+      - entity_id
+      - entity_type
+      - id
+      - user
     AddProjectMember:
       type: object
       properties:
@@ -642,6 +830,16 @@ components:
       - current_password
       - new_password
       - new_password_confirm
+    EntityTypeEnum:
+      enum:
+      - PROJECT
+      - MEMBERSHIP
+      - ISSUE
+      type: string
+      description: |-
+        * `PROJECT` - Project
+        * `MEMBERSHIP` - Membership
+        * `ISSUE` - Issue
     Issue:
       type: object
       properties:
@@ -766,6 +964,28 @@ components:
     NullEnum:
       enum:
       - null
+    PaginatedActivity:
+      type: object
+      properties:
+        count:
+          type: integer
+        next:
+          type: string
+          format: uri
+          nullable: true
+        previous:
+          type: string
+          format: uri
+          nullable: true
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Activity'
+      required:
+      - count
+      - next
+      - previous
+      - results
     PaginatedIssue:
       type: object
       properties:

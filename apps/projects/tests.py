@@ -513,6 +513,71 @@ class ProjectMembershipAPITestCase(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_cannot_make_member_a_viewer_while_issues_are_assigned(self):
+        from apps.issues.models import Issue
+
+        Issue.objects.create(
+            project=self.project,
+            issue_number=1,
+            title='Open work',
+            reporter=self.manager,
+            assignee=self.member,
+        )
+        self.login(self.manager)
+
+        response = self.client.patch(
+            f'{self.members_url}{self.member_membership.id}/',
+            {'role': 'VIEWER'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.member_membership.refresh_from_db()
+        self.assertEqual(self.member_membership.role, 'TEAM_MEMBER')
+
+    def test_archived_issues_do_not_block_making_a_member_a_viewer(self):
+        from apps.issues.models import Issue
+
+        Issue.objects.create(
+            project=self.project,
+            issue_number=1,
+            title='Old work',
+            reporter=self.manager,
+            assignee=self.member,
+            is_archived=True,
+        )
+        self.login(self.manager)
+
+        response = self.client.patch(
+            f'{self.members_url}{self.member_membership.id}/',
+            {'role': 'VIEWER'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.member_membership.refresh_from_db()
+        self.assertEqual(self.member_membership.role, 'VIEWER')
+
+    def test_issues_assigned_to_others_do_not_block_the_change(self):
+        from apps.issues.models import Issue
+
+        Issue.objects.create(
+            project=self.project,
+            issue_number=1,
+            title="Manager's work",
+            reporter=self.manager,
+            assignee=self.manager,
+        )
+        self.login(self.manager)
+
+        response = self.client.patch(
+            f'{self.members_url}{self.member_membership.id}/',
+            {'role': 'VIEWER'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_manager_can_remove_member_and_unassigns_issues(self):
         from apps.issues.models import Issue
 
