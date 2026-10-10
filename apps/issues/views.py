@@ -164,8 +164,10 @@ class ProjectIssueListCreateView(APIView):
                 status.HTTP_403_FORBIDDEN,
             )
 
+        # The project is needed to validate the due date against its dates.
         serializer = IssueSerializer(
             data=request.data,
+            context={'project': project},
         )
 
         serializer.is_valid(
