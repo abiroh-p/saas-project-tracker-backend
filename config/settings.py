@@ -56,7 +56,8 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'apps.accounts',
     'apps.projects',
-    'apps.issues'
+    'apps.issues',
+    'apps.activity',
 ]
 AUTH_USER_MODEL = "accounts.User"
 
