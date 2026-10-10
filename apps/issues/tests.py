@@ -1628,3 +1628,98 @@ class IssueAPITestCase(APITestCase):
         self.assertEqual(len(results), 2)
         self.assertEqual(results[0]['id'], second_issue.id)
         self.assertEqual(results[1]['id'], first_issue.id)
+
+    def dated_project(self):
+        self.project.start_date = '2026-01-01'
+        self.project.end_date = '2026-12-31'
+        self.project.save()
+
+    def create_with_due_date(self, due_date):
+        return self.client.post(
+            f'/api/v1/projects/{self.project.id}/issues/',
+            {'title': 'Dated issue', 'due_date': due_date},
+            format='json',
+        )
+
+    def test_create_rejects_due_date_before_project_start(self):
+        self.dated_project()
+        self.authenticate(self.manager)
+
+        response = self.create_with_due_date('2025-12-31')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('due_date', response.data['errors'])
+        self.assertFalse(Issue.objects.exists())
+
+    def test_create_rejects_due_date_after_project_end(self):
+        self.dated_project()
+        self.authenticate(self.manager)
+
+        response = self.create_with_due_date('2027-01-01')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('due_date', response.data['errors'])
+        self.assertFalse(Issue.objects.exists())
+
+        # A rejected request must not use up an issue number.
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.issue_counter, 0)
+
+    def test_create_accepts_due_dates_inside_the_project_range(self):
+        self.dated_project()
+        self.authenticate(self.manager)
+
+        for due_date in ('2026-01-01', '2026-06-15', '2026-12-31'):
+            response = self.create_with_due_date(due_date)
+
+            self.assertEqual(response.status_code, 201, due_date)
+            self.assertEqual(response.data['due_date'], due_date)
+
+    def test_create_accepts_any_due_date_when_project_has_no_dates(self):
+        self.authenticate(self.manager)
+
+        response = self.create_with_due_date('2030-05-05')
+
+        self.assertEqual(response.status_code, 201)
+
+    def test_update_rejects_due_date_outside_the_project_range(self):
+        self.dated_project()
+        issue = Issue.objects.create(
+            project=self.project,
+            issue_number=1,
+            title='Existing',
+            reporter=self.manager,
+        )
+        self.authenticate(self.manager)
+
+        for due_date in ('2025-12-31', '2027-01-01'):
+            response = self.client.patch(
+                f'/api/v1/issues/{issue.id}/',
+                {'due_date': due_date},
+                format='json',
+            )
+
+            self.assertEqual(response.status_code, 400, due_date)
+            self.assertIn('due_date', response.data['errors'])
+
+        issue.refresh_from_db()
+        self.assertIsNone(issue.due_date)
+
+    def test_update_accepts_due_date_inside_the_project_range(self):
+        self.dated_project()
+        issue = Issue.objects.create(
+            project=self.project,
+            issue_number=1,
+            title='Existing',
+            reporter=self.manager,
+        )
+        self.authenticate(self.manager)
+
+        response = self.client.patch(
+            f'/api/v1/issues/{issue.id}/',
+            {'due_date': '2026-06-15'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['due_date'], '2026-06-15')
