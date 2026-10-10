@@ -159,6 +159,104 @@ class IssueServiceTestCase(APITestCase):
             0,
         )
 
+    def test_cannot_create_issue_assigned_to_viewer(self):
+        with self.assertRaisesMessage(
+            ValueError,
+            'Viewers cannot be assigned issues.',
+        ):
+            create_issue(
+                project=self.project,
+                validated_data={
+                    'title': 'For a viewer',
+                    'assignee': self.viewer,
+                },
+                user=self.manager,
+            )
+
+        self.assertFalse(Issue.objects.exists())
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.issue_counter, 0)
+
+    def test_cannot_assign_existing_issue_to_viewer(self):
+        issue = Issue.objects.create(
+            project=self.project,
+            issue_number=1,
+            title='Original',
+            reporter=self.manager,
+            assignee=self.member,
+        )
+
+        with self.assertRaisesMessage(
+            ValueError,
+            'Viewers cannot be assigned issues.',
+        ):
+            update_issue(
+                issue=issue,
+                validated_data={'assignee': self.viewer},
+                user=self.manager,
+            )
+
+        issue.refresh_from_db()
+        self.assertEqual(issue.assignee, self.member)
+
+    def test_manager_can_still_assign_and_unassign_members(self):
+        issue = Issue.objects.create(
+            project=self.project,
+            issue_number=1,
+            title='Original',
+            reporter=self.manager,
+        )
+
+        update_issue(
+            issue=issue,
+            validated_data={'assignee': self.member},
+            user=self.manager,
+        )
+        issue.refresh_from_db()
+        self.assertEqual(issue.assignee, self.member)
+
+        update_issue(
+            issue=issue,
+            validated_data={'assignee': None},
+            user=self.manager,
+        )
+        issue.refresh_from_db()
+        self.assertIsNone(issue.assignee)
+
+    def test_existing_viewer_assignee_does_not_block_other_edits(self):
+        # Data from before this rule: a viewer is already the assignee.
+        issue = Issue.objects.create(
+            project=self.project,
+            issue_number=1,
+            title='Original',
+            reporter=self.manager,
+            assignee=self.viewer,
+        )
+
+        update_issue(
+            issue=issue,
+            validated_data={'title': 'Renamed'},
+            user=self.manager,
+        )
+        update_issue(
+            issue=issue,
+            validated_data={'assignee': self.viewer},
+            user=self.manager,
+        )
+        issue.refresh_from_db()
+
+        self.assertEqual(issue.title, 'Renamed')
+        self.assertEqual(issue.assignee, self.viewer)
+
+        # ...and the manager can still clear it.
+        update_issue(
+            issue=issue,
+            validated_data={'assignee': None},
+            user=self.manager,
+        )
+        issue.refresh_from_db()
+        self.assertIsNone(issue.assignee)
+
     def test_viewer_cannot_create_issue(self):
         # This rule is enforced at the API/service boundary.
         # The current create_issue service does not yet perform
@@ -486,6 +584,63 @@ class IssueAPITestCase(APITestCase):
             response.data['issue_key'],
             'API-1',
         )
+
+    def test_cannot_create_issue_assigned_to_viewer(self):
+        self.authenticate(self.manager)
+
+        response = self.client.post(
+            f'/api/v1/projects/{self.project.id}/issues/',
+            {'title': 'For a viewer', 'assignee': self.viewer.id},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.data['detail'],
+            'Viewers cannot be assigned issues.',
+        )
+        self.assertFalse(Issue.objects.exists())
+
+    def test_cannot_assign_issue_to_viewer(self):
+        issue = Issue.objects.create(
+            project=self.project,
+            issue_number=1,
+            title='Original',
+            reporter=self.manager,
+        )
+        self.authenticate(self.manager)
+
+        response = self.client.patch(
+            f'/api/v1/issues/{issue.id}/',
+            {'assignee': self.viewer.id},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.data['detail'],
+            'Viewers cannot be assigned issues.',
+        )
+        issue.refresh_from_db()
+        self.assertIsNone(issue.assignee)
+
+    def test_manager_can_still_assign_issue_to_team_member(self):
+        issue = Issue.objects.create(
+            project=self.project,
+            issue_number=1,
+            title='Original',
+            reporter=self.manager,
+        )
+        self.authenticate(self.manager)
+
+        response = self.client.patch(
+            f'/api/v1/issues/{issue.id}/',
+            {'assignee': self.member.id},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['assignee'], self.member.id)
 
     def test_viewer_cannot_create_issue(self):
         self.authenticate(self.viewer)
