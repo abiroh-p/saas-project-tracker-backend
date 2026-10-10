@@ -160,6 +160,7 @@ class ProjectDetailView(APIView):
         project = update_project(
             project=project,
             validated_data=serializer.validated_data,
+            actor=request.user,
         )
 
         response_serializer = ProjectSerializer(project, context={'request': request})
@@ -195,7 +196,7 @@ class ProjectArchiveView(APIView):
                 status.HTTP_403_FORBIDDEN,
             )
 
-        archive_project(project=project)
+        archive_project(project=project, actor=request.user)
 
         return Response(
             {
@@ -252,6 +253,7 @@ class ProjectMemberListCreateView(APIView):
                 project=project,
                 user_id=serializer.validated_data['user_id'],
                 role=serializer.validated_data['role'],
+                actor=request.user,
             )
         except ValueError as exc:
             return api_error(
@@ -296,6 +298,7 @@ class ProjectMemberDetailView(APIView):
             membership = change_member_role(
                 membership=membership,
                 role=serializer.validated_data['role'],
+                actor=request.user,
             )
         except ValueError as exc:
             return api_error(
@@ -328,7 +331,10 @@ class ProjectMemberDetailView(APIView):
             )
 
         try:
-            remove_project_member(membership=membership)
+            remove_project_member(
+                membership=membership,
+                actor=request.user,
+            )
         except ValueError as exc:
             return api_error(
                 str(exc),

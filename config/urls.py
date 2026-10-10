@@ -42,4 +42,8 @@ urlpatterns = [
     'api/v1/issues/',
     include('apps.issues.urls'),
 ),
+    path(
+    'api/v1/',
+    include('apps.activity.urls'),
+),
 ]
