@@ -46,4 +46,8 @@ urlpatterns = [
     'api/v1/',
     include('apps.activity.urls'),
 ),
+    path(
+    'api/v1/',
+    include('apps.comments.urls'),
+),
 ]

@@ -339,6 +339,145 @@ paths:
               schema:
                 $ref: '#/components/schemas/Issue'
           description: ''
+  /api/v1/issues/{issue_id}/comments/:
+    get:
+      operationId: issue_comment_list
+      parameters:
+      - in: path
+        name: issue_id
+        schema:
+          type: integer
+        required: true
+      - in: query
+        name: page
+        schema:
+          type: integer
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedComment'
+          description: ''
+    post:
+      operationId: issue_comment_create
+      parameters:
+      - in: path
+        name: issue_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentInput'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CommentInput'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CommentInput'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+          description: ''
+  /api/v1/issues/{issue_id}/comments/{comment_id}/:
+    get:
+      operationId: issue_comment_retrieve
+      parameters:
+      - in: path
+        name: comment_id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: issue_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+          description: ''
+    patch:
+      operationId: issue_comment_partial_update
+      parameters:
+      - in: path
+        name: comment_id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: issue_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedCommentInput'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedCommentInput'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedCommentInput'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+          description: ''
+    delete:
+      operationId: issue_comment_delete
+      parameters:
+      - in: path
+        name: comment_id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: issue_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/issues/{issue_id}/transition/:
     post:
       operationId: v1_issues_transition_create
@@ -831,6 +970,86 @@ components:
       - current_password
       - new_password
       - new_password_confirm
+    Comment:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        issue:
+          type: integer
+          readOnly: true
+        author:
+          type: object
+          properties:
+            id:
+              type: integer
+            username:
+              type: string
+          required:
+          - id
+          - username
+          readOnly: true
+        body:
+          type: string
+          nullable: true
+          readOnly: true
+        mentions:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              username:
+                type: string
+            required:
+            - id
+            - username
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        edited_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        is_deleted:
+          type: boolean
+          readOnly: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - author
+      - body
+      - created_at
+      - deleted_at
+      - edited_at
+      - id
+      - is_deleted
+      - issue
+      - mentions
+      - updated_at
+    CommentInput:
+      type: object
+      description: |-
+        Only the text can be written. The author is always the request user
+        and the issue comes from the URL, so neither is accepted from the client.
+      properties:
+        body:
+          type: string
+          maxLength: 5000
+      required:
+      - body
     EntityTypeEnum:
       enum:
       - PROJECT
@@ -987,6 +1206,28 @@ components:
       - next
       - previous
       - results
+    PaginatedComment:
+      type: object
+      properties:
+        count:
+          type: integer
+        next:
+          type: string
+          format: uri
+          nullable: true
+        previous:
+          type: string
+          format: uri
+          nullable: true
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Comment'
+      required:
+      - count
+      - next
+      - previous
+      - results
     PaginatedIssue:
       type: object
       properties:
@@ -1031,6 +1272,15 @@ components:
       - next
       - previous
       - results
+    PatchedCommentInput:
+      type: object
+      description: |-
+        Only the text can be written. The author is always the request user
+        and the issue comes from the URL, so neither is accepted from the client.
+      properties:
+        body:
+          type: string
+          maxLength: 5000
     PatchedIssue:
       type: object
       properties:
