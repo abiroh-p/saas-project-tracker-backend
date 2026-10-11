@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from .pagination import IssuePagination
 
+from config.query_params import QueryParamError, SEARCH_MAX_LENGTH
 from config.responses import api_error
 from config.schema import paginated
 
@@ -15,6 +16,7 @@ from apps.projects.services.membership import (
     get_project_membership,
 )
 
+from .filters import ORDERING_CHOICES, apply_issue_filters
 from .models import Issue
 from .serializers import (
     IssueSerializer,
@@ -26,6 +28,97 @@ from .services.issue import (
     archive_issue,
     transition_issue,
 )
+
+
+_BAD_REQUEST = 'An invalid value returns 400 with code `bad_request`.'
+
+ISSUE_LIST_PARAMETERS = [
+    OpenApiParameter(
+        name='search',
+        type=str,
+        required=False,
+        description=(
+            'Case-insensitive text search over the issue title and '
+            'description, and over the issue key (an exact key such as '
+            f'`API-12`). Up to {SEARCH_MAX_LENGTH} characters; an empty value '
+            'means no search. Combined with the other filters using AND.'
+        ),
+    ),
+    OpenApiParameter(
+        name='status',
+        type=str,
+        required=False,
+        enum=Issue.Status.values,
+        description=f'Only issues with this status. {_BAD_REQUEST}',
+    ),
+    OpenApiParameter(
+        name='priority',
+        type=str,
+        required=False,
+        enum=Issue.Priority.values,
+        description=f'Only issues with this priority. {_BAD_REQUEST}',
+    ),
+    OpenApiParameter(
+        name='issue_type',
+        type=str,
+        required=False,
+        enum=Issue.IssueType.values,
+        description=f'Only issues of this type. {_BAD_REQUEST}',
+    ),
+    OpenApiParameter(
+        name='assignee',
+        type=int,
+        required=False,
+        description=(
+            'Only issues assigned to the user with this id (a positive '
+            f'integer). {_BAD_REQUEST}'
+        ),
+    ),
+    OpenApiParameter(
+        name='due_before',
+        type=OpenApiTypes.DATE,
+        required=False,
+        description=(
+            'Only issues due on or before this date (YYYY-MM-DD). Issues '
+            f'without a due date are excluded. {_BAD_REQUEST}'
+        ),
+    ),
+    OpenApiParameter(
+        name='due_after',
+        type=OpenApiTypes.DATE,
+        required=False,
+        description=(
+            'Only issues due on or after this date (YYYY-MM-DD). Issues '
+            'without a due date are excluded. It cannot be later than '
+            f'`due_before`. {_BAD_REQUEST}'
+        ),
+    ),
+    OpenApiParameter(
+        name='ordering',
+        type=str,
+        required=False,
+        enum=ORDERING_CHOICES,
+        description=(
+            'Sort field; prefix with `-` for descending. A single field '
+            'only. Priority sorts by urgency, title ignores case, and '
+            'issues without a due date always come last. Ties are broken by '
+            'id. Defaults to newest first (`-created_at`). '
+            f'{_BAD_REQUEST}'
+        ),
+    ),
+    OpenApiParameter(
+        name='page',
+        type=int,
+        required=False,
+        description='Page number, starting at 1.',
+    ),
+    OpenApiParameter(
+        name='page_size',
+        type=int,
+        required=False,
+        description='Results per page (default 20, capped at 100).',
+    ),
+]
 
 
 class ProjectIssueListCreateView(APIView):
@@ -41,14 +134,7 @@ class ProjectIssueListCreateView(APIView):
         )
 
     @extend_schema(
-        parameters=[
-            OpenApiParameter('status', str),
-            OpenApiParameter('priority', str),
-            OpenApiParameter('issue_type', str),
-            OpenApiParameter('assignee', int),
-            OpenApiParameter('page', int),
-            OpenApiParameter('page_size', int),
-        ],
+        parameters=ISSUE_LIST_PARAMETERS,
         responses=paginated(IssueSerializer),
     )
     def get(self, request, project_id):
@@ -67,70 +153,18 @@ class ProjectIssueListCreateView(APIView):
             )
         )
 
-        status_filter = request.query_params.get('status')
-        priority_filter = request.query_params.get('priority')
-        issue_type_filter = request.query_params.get('issue_type')
-        assignee_filter = request.query_params.get('assignee')
-
-        valid_statuses = {
-            choice[0]
-            for choice in Issue.Status.choices
-        }
-
-        valid_priorities = {
-            choice[0]
-            for choice in Issue.Priority.choices
-        }
-
-        valid_issue_types = {
-            choice[0]
-            for choice in Issue.IssueType.choices
-        }
-
-        if status_filter and status_filter not in valid_statuses:
+        try:
+            issues = apply_issue_filters(
+                issues,
+                request.query_params,
+                project,
+            )
+        except QueryParamError as exc:
             return api_error(
-                'Invalid status filter.',
+                str(exc),
                 'bad_request',
                 status.HTTP_400_BAD_REQUEST,
             )
-
-        if priority_filter and priority_filter not in valid_priorities:
-            return api_error(
-                'Invalid priority filter.',
-                'bad_request',
-                status.HTTP_400_BAD_REQUEST,
-            )
-
-        if issue_type_filter and issue_type_filter not in valid_issue_types:
-            return api_error(
-                'Invalid issue type filter.',
-                'bad_request',
-                status.HTTP_400_BAD_REQUEST,
-            )
-
-        if assignee_filter:
-            try:
-                assignee_id = int(assignee_filter)
-            except (TypeError, ValueError):
-                return api_error(
-                    'Invalid assignee filter.',
-                    'bad_request',
-                    status.HTTP_400_BAD_REQUEST,
-                )
-        else:
-            assignee_id = None
-
-        if status_filter:
-            issues = issues.filter(status=status_filter)
-
-        if priority_filter:
-            issues = issues.filter(priority=priority_filter)
-
-        if issue_type_filter:
-            issues = issues.filter(issue_type=issue_type_filter)
-
-        if assignee_id is not None:
-            issues = issues.filter(assignee_id=assignee_id)
 
         paginator = IssuePagination()
         page = paginator.paginate_queryset(
