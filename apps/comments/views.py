@@ -12,7 +12,11 @@ from config.schema import paginated
 from .models import Comment
 from .pagination import CommentPagination
 from .serializers import CommentInputSerializer, CommentSerializer
-from .services.comment import create_comment
+from .services.comment import (
+    create_comment,
+    delete_comment,
+    update_comment,
+)
 
 COMMENT_PAGE = paginated(CommentSerializer)
 
@@ -116,4 +120,46 @@ class IssueCommentDetailView(APIView):
         issue = get_issue(issue_id, request.user)
         comment = get_comment(issue, comment_id)
 
+        return Response(CommentSerializer(comment).data)
+
+    @extend_schema(
+        operation_id='issue_comment_partial_update',
+        request=CommentInputSerializer,
+        responses=CommentSerializer,
+    )
+    def patch(self, request, issue_id, comment_id):
+        issue = get_issue(issue_id, request.user)
+        comment = get_comment(issue, comment_id)
+
+        serializer = CommentInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            comment = update_comment(
+                comment=comment,
+                user=request.user,
+                body=serializer.validated_data['body'],
+            )
+        except (PermissionError, ValueError) as exc:
+            return _error_response(exc)
+
+        return Response(CommentSerializer(comment).data)
+
+    @extend_schema(
+        operation_id='issue_comment_delete',
+        responses=CommentSerializer,
+    )
+    def delete(self, request, issue_id, comment_id):
+        issue = get_issue(issue_id, request.user)
+        comment = get_comment(issue, comment_id)
+
+        try:
+            comment = delete_comment(
+                comment=comment,
+                user=request.user,
+            )
+        except (PermissionError, ValueError) as exc:
+            return _error_response(exc)
+
+        # The comment stays as a tombstone, so the client gets it back.
         return Response(CommentSerializer(comment).data)
