@@ -977,6 +977,234 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/projects/{project_id}/reports/assignee-workload/:
+    get:
+      operationId: project_report_assignee_workload
+      description: 'Issue counts per assignee, busiest first. Only `assignee_id`,
+        `username` and `full_name` are exposed for each user. Issues with no assignee
+        form one group with `assignee_id` null, listed last and present only when
+        such issues exist. Counts non-archived issues of the project. Available to
+        any member of a non-archived project (viewers included). Responds 401 when
+        the request is not authenticated and 404 with code `not_found` when the project
+        does not exist, is archived, or the caller is not a member (the cases are
+        deliberately indistinguishable). Read-only: no activity is recorded.'
+      parameters:
+      - in: path
+        name: project_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssigneeWorkload'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportError'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportError'
+          description: ''
+  /api/v1/projects/{project_id}/reports/overview/:
+    get:
+      operationId: project_report_overview
+      description: 'Progress metrics for one project. `open_issues` counts TODO, `in_progress_issues`
+        counts IN_PROGRESS and IN_REVIEW, and `completed_issues` counts DONE. Overdue
+        means not DONE with a due date before today (server timezone). Counts non-archived
+        issues of the project. Available to any member of a non-archived project (viewers
+        included). Responds 401 when the request is not authenticated and 404 with
+        code `not_found` when the project does not exist, is archived, or the caller
+        is not a member (the cases are deliberately indistinguishable). Read-only:
+        no activity is recorded.'
+      parameters:
+      - in: path
+        name: project_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectOverview'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportError'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportError'
+          description: ''
+  /api/v1/projects/{project_id}/reports/priority-distribution/:
+    get:
+      operationId: project_report_priority_distribution
+      description: 'Issue count per priority, from lowest to highest priority. Every
+        declared priority is present, with 0 when unused; `other_count` holds any
+        undeclared legacy value. Counts non-archived issues of the project. Available
+        to any member of a non-archived project (viewers included). Responds 401 when
+        the request is not authenticated and 404 with code `not_found` when the project
+        does not exist, is archived, or the caller is not a member (the cases are
+        deliberately indistinguishable). Read-only: no activity is recorded.'
+      parameters:
+      - in: path
+        name: project_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriorityDistribution'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportError'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportError'
+          description: ''
+  /api/v1/projects/{project_id}/reports/status-distribution/:
+    get:
+      operationId: project_report_status_distribution
+      description: 'Issue count per status, in the order of the status choices. Every
+        declared status is present, with 0 when unused; `other_count` holds any undeclared
+        legacy value. Counts non-archived issues of the project. Available to any
+        member of a non-archived project (viewers included). Responds 401 when the
+        request is not authenticated and 404 with code `not_found` when the project
+        does not exist, is archived, or the caller is not a member (the cases are
+        deliberately indistinguishable). Read-only: no activity is recorded.'
+      parameters:
+      - in: path
+        name: project_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusDistribution'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportError'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportError'
+          description: ''
+  /api/v1/projects/{project_id}/reports/trends/:
+    get:
+      operationId: project_report_trends
+      description: 'Issues created and completed per day or week. Dates are inclusive
+        calendar dates in the server timezone. `created_count` uses the issue creation
+        time; `completed_count` counts the recorded transitions to DONE (never `updated_at`).
+        Every period in the range is present, with zeros when empty; weeks start on
+        Monday and are labelled by that Monday. An invalid or missing parameter returns
+        400 with code `bad_request`. Counts non-archived issues of the project. Available
+        to any member of a non-archived project (viewers included). Responds 401 when
+        the request is not authenticated and 404 with code `not_found` when the project
+        does not exist, is archived, or the caller is not a member (the cases are
+        deliberately indistinguishable). Read-only: no activity is recorded.'
+      parameters:
+      - in: query
+        name: date_from
+        schema:
+          type: string
+        description: First day, `YYYY-MM-DD`, inclusive.
+        required: true
+      - in: query
+        name: date_to
+        schema:
+          type: string
+        description: Last day, `YYYY-MM-DD`, inclusive. Must not be before `date_from`;
+          the range is at most 366 days.
+        required: true
+      - in: query
+        name: interval
+        schema:
+          type: string
+          enum:
+          - day
+          - week
+          default: day
+        description: Size of each period.
+      - in: path
+        name: project_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Trends'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportError'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportError'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportError'
+          description: ''
 components:
   schemas:
     ActionEnum:
@@ -1059,6 +1287,54 @@ components:
           default: TEAM_MEMBER
       required:
       - user_id
+    AssigneeWorkload:
+      type: object
+      properties:
+        project_id:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssigneeWorkloadItem'
+        total_issues:
+          type: integer
+          description: Sum of `assigned_issues` over all groups.
+      required:
+      - project_id
+      - results
+      - total_issues
+    AssigneeWorkloadItem:
+      type: object
+      properties:
+        assignee_id:
+          type: integer
+          nullable: true
+          description: '`null` for the group of unassigned issues.'
+        username:
+          type: string
+          nullable: true
+        full_name:
+          type: string
+          nullable: true
+        assigned_issues:
+          type: integer
+        open_issues:
+          type: integer
+        in_progress_issues:
+          type: integer
+        completed_issues:
+          type: integer
+        overdue_issues:
+          type: integer
+      required:
+      - assigned_issues
+      - assignee_id
+      - completed_issues
+      - full_name
+      - in_progress_issues
+      - open_issues
+      - overdue_issues
+      - username
     ChangePassword:
       type: object
       properties:
@@ -1250,6 +1526,14 @@ components:
         * `PROJECT` - Project
         * `MEMBERSHIP` - Membership
         * `ISSUE` - Issue
+    IntervalEnum:
+      enum:
+      - day
+      - week
+      type: string
+      description: |-
+        * `day` - day
+        * `week` - week
     Issue:
       type: object
       properties:
@@ -1626,6 +1910,40 @@ components:
       properties:
         role:
           $ref: '#/components/schemas/ProjectRoleEnum'
+    PriorityCount:
+      type: object
+      properties:
+        priority:
+          $ref: '#/components/schemas/PriorityEnum'
+        label:
+          type: string
+        count:
+          type: integer
+      required:
+      - count
+      - label
+      - priority
+    PriorityDistribution:
+      type: object
+      properties:
+        project_id:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/PriorityCount'
+        other_count:
+          type: integer
+          description: Issues whose priority is not one of the declared choices (legacy
+            data). Normally 0.
+        total_issues:
+          type: integer
+          description: Sum of every count in `results` plus `other_count`.
+      required:
+      - other_count
+      - project_id
+      - results
+      - total_issues
     PriorityEnum:
       enum:
       - LOW
@@ -1752,6 +2070,47 @@ components:
       - role
       - user_id
       - username
+    ProjectOverview:
+      type: object
+      properties:
+        project_id:
+          type: integer
+        project_key:
+          type: string
+        total_issues:
+          type: integer
+          description: Non-archived issues in the project.
+        open_issues:
+          type: integer
+          description: Issues not started yet (status TODO).
+        in_progress_issues:
+          type: integer
+          description: Issues being worked on (status IN_PROGRESS or IN_REVIEW).
+        completed_issues:
+          type: integer
+          description: Issues with status DONE.
+        overdue_issues:
+          type: integer
+          description: Issues that are not DONE and whose due date is before today.
+            An issue due today is not overdue.
+        unassigned_issues:
+          type: integer
+          description: Issues with no assignee.
+        completion_rate:
+          type: number
+          format: double
+          description: completed_issues / total_issues * 100, rounded half-up to one
+            decimal place; 0.0 when the project has no issues.
+      required:
+      - completed_issues
+      - completion_rate
+      - in_progress_issues
+      - open_issues
+      - overdue_issues
+      - project_id
+      - project_key
+      - total_issues
+      - unassigned_issues
     ProjectRoleEnum:
       enum:
       - PROJECT_MANAGER
@@ -1783,6 +2142,50 @@ components:
       - email
       - full_name
       - password
+    ReportError:
+      type: object
+      properties:
+        detail:
+          type: string
+        code:
+          type: string
+      required:
+      - code
+      - detail
+    StatusCount:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        label:
+          type: string
+        count:
+          type: integer
+      required:
+      - count
+      - label
+      - status
+    StatusDistribution:
+      type: object
+      properties:
+        project_id:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatusCount'
+        other_count:
+          type: integer
+          description: Issues whose status is not one of the declared choices (legacy
+            data). Normally 0.
+        total_issues:
+          type: integer
+          description: Sum of every count in `results` plus `other_count`.
+      required:
+      - other_count
+      - project_id
+      - results
+      - total_issues
     StatusEnum:
       enum:
       - TODO
@@ -1807,6 +2210,44 @@ components:
       required:
       - access
       - refresh
+    TrendPoint:
+      type: object
+      properties:
+        period:
+          type: string
+          format: date
+          description: The day, or the Monday that starts the week.
+        created_count:
+          type: integer
+        completed_count:
+          type: integer
+      required:
+      - completed_count
+      - created_count
+      - period
+    Trends:
+      type: object
+      properties:
+        project_id:
+          type: integer
+        interval:
+          $ref: '#/components/schemas/IntervalEnum'
+        date_from:
+          type: string
+          format: date
+        date_to:
+          type: string
+          format: date
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrendPoint'
+      required:
+      - date_from
+      - date_to
+      - interval
+      - project_id
+      - results
     User:
       type: object
       description: The user payload shared by register, login and me.
