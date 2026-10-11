@@ -1153,14 +1153,14 @@ paths:
         name: date_from
         schema:
           type: string
-        description: First day, `YYYY-MM-DD`, inclusive.
+        description: First day, `YYYY-MM-DD`, inclusive. Between 1970-01-01 and 2100-12-31.
         required: true
       - in: query
         name: date_to
         schema:
           type: string
         description: Last day, `YYYY-MM-DD`, inclusive. Must not be before `date_from`;
-          the range is at most 366 days.
+          the range is at most 366 days. Between 1970-01-01 and 2100-12-31.
         required: true
       - in: query
         name: interval
