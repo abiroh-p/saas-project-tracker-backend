@@ -216,6 +216,26 @@ paths:
                 type: object
                 additionalProperties: {}
           description: ''
+  /api/v1/dashboard/:
+    get:
+      operationId: dashboard_retrieve
+      description: |-
+        Summary of the authenticated user's projects and assigned work. The owner is always the authenticated user; the endpoint takes no parameters.
+
+        Archived issues, archived projects and projects the user is no longer a member of are excluded everywhere. An issue is overdue when it is not DONE and its due date is before today (server timezone); an issue due today is not overdue. `recent_issues` holds up to 5 of the user's assigned issues, most recently updated first.
+
+        Responds 401 when the request is not authenticated.
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dashboard'
+          description: ''
   /api/v1/issues/{issue_id}/:
     get:
       operationId: v1_issues_retrieve
@@ -1137,6 +1157,89 @@ components:
           maxLength: 5000
       required:
       - body
+    Dashboard:
+      type: object
+      properties:
+        summary:
+          $ref: '#/components/schemas/DashboardSummary'
+        issues_by_status:
+          $ref: '#/components/schemas/IssuesByStatus'
+        recent_issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardIssue'
+      required:
+      - issues_by_status
+      - recent_issues
+      - summary
+    DashboardIssue:
+      type: object
+      description: The few issue fields a dashboard row needs.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        issue_key:
+          type: string
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          readOnly: true
+        priority:
+          allOf:
+          - $ref: '#/components/schemas/PriorityEnum'
+          readOnly: true
+        project_id:
+          type: integer
+          readOnly: true
+        due_date:
+          type: string
+          format: date
+          readOnly: true
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - due_date
+      - id
+      - issue_key
+      - priority
+      - project_id
+      - status
+      - title
+      - updated_at
+    DashboardSummary:
+      type: object
+      properties:
+        projects_count:
+          type: integer
+          description: Non-archived projects the user is a member of.
+        assigned_issues_count:
+          type: integer
+          description: Non-archived issues assigned to the user in projects they can
+            access. Normally equals the sum of issues_by_status; it also counts any
+            issue whose status is not one of the declared choices.
+        in_progress_count:
+          type: integer
+          description: Assigned issues with status IN_PROGRESS.
+        completed_count:
+          type: integer
+          description: Assigned issues with status DONE.
+        overdue_count:
+          type: integer
+          description: Assigned, incomplete issues with a due date before today.
+      required:
+      - assigned_issues_count
+      - completed_count
+      - in_progress_count
+      - overdue_count
+      - projects_count
     EntityTypeEnum:
       enum:
       - PROJECT
@@ -1248,6 +1351,22 @@ components:
         * `BUG` - Bug
         * `STORY` - Story
         * `EPIC` - Epic
+    IssuesByStatus:
+      type: object
+      properties:
+        TODO:
+          type: integer
+        IN_PROGRESS:
+          type: integer
+        IN_REVIEW:
+          type: integer
+        DONE:
+          type: integer
+      required:
+      - DONE
+      - IN_PROGRESS
+      - IN_REVIEW
+      - TODO
     Login:
       type: object
       properties:
