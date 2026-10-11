@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     'apps.activity',
     'apps.comments',
     'apps.dashboard',
+    'apps.reports',
 ]
 AUTH_USER_MODEL = "accounts.User"
 
