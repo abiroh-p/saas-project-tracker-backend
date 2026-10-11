@@ -5,6 +5,7 @@ from apps.projects.models import ProjectMember
 from apps.projects.services.membership import get_project_membership
 
 from ..models import Comment
+from .mentions import resolve_mentioned_users
 
 
 def _require_participant(*, issue, user, action):
@@ -40,11 +41,17 @@ def create_comment(*, issue, user, body):
             'Comments on archived issues are read-only.'
         )
 
-    return Comment.objects.create(
+    comment = Comment.objects.create(
         issue=issue,
         author=user,
         body=body,
     )
+
+    comment.mentions.set(
+        resolve_mentioned_users(project=issue.project, body=body)
+    )
+
+    return comment
 
 
 def _lock(comment):
@@ -95,6 +102,10 @@ def update_comment(*, comment, user, body):
     comment.edited_at = timezone.now()
     comment.save(update_fields=['body', 'edited_at', 'updated_at'])
 
+    comment.mentions.set(
+        resolve_mentioned_users(project=comment.issue.project, body=body)
+    )
+
     return comment
 
 
@@ -132,5 +143,7 @@ def delete_comment(*, comment, user):
     comment.save(
         update_fields=['body', 'deleted_at', 'deleted_by', 'updated_at'],
     )
+
+    comment.mentions.clear()
 
     return comment

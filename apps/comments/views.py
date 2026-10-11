@@ -37,7 +37,9 @@ def get_issue(issue_id, user):
 
 def get_comment(issue, comment_id):
     return get_object_or_404(
-        Comment.objects.select_related('author', 'issue__project'),
+        Comment.objects
+        .select_related('author', 'issue__project')
+        .prefetch_related('mentions'),
         id=comment_id,
         issue=issue,
     )
@@ -74,7 +76,9 @@ class IssueCommentListCreateView(APIView):
 
         paginator = CommentPagination()
         page = paginator.paginate_queryset(
-            issue.comments.select_related('author'),
+            issue.comments
+            .select_related('author')
+            .prefetch_related('mentions'),
             request,
             view=self,
         )

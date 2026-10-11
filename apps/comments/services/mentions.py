@@ -1,5 +1,9 @@
 import re
 
+from django.db.models.functions import Lower
+
+from apps.projects.models import ProjectMember
+
 # "@name" where the "@" starts the text or follows whitespace or punctuation,
 # so email addresses ("a@b.com") and "@@x" are not mentions. The name cannot
 # end with "." or "-", so "thanks @sam." mentions "sam".
@@ -26,3 +30,31 @@ def extract_mentioned_usernames(text):
             break
 
     return usernames
+
+
+def resolve_mentioned_users(*, project, body):
+    """The users `body` mentions who are members of `project`.
+
+    Anyone else (unknown names, people outside the project) is left as plain
+    text. Names are matched case-insensitively and returned in order of
+    first appearance.
+    """
+    usernames = extract_mentioned_usernames(body)
+
+    if not usernames:
+        return []
+
+    members = (
+        ProjectMember.objects
+        .filter(project=project)
+        .annotate(lowered_username=Lower('user__username'))
+        .filter(lowered_username__in=usernames)
+        .select_related('user')
+    )
+
+    users = {
+        member.lowered_username: member.user
+        for member in members
+    }
+
+    return [users[name] for name in usernames if name in users]

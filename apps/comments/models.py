@@ -53,6 +53,14 @@ class Comment(models.Model):
         related_name='deleted_issue_comments',
     )
 
+    # Project members mentioned in the text. Filled by the server from the
+    # body (never from client input), so it only ever holds eligible users.
+    mentions = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name='mentioned_in_comments',
+    )
+
     class Meta:
         ordering = ['created_at', 'id']
         indexes = [

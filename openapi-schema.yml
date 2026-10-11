@@ -994,6 +994,19 @@ components:
           type: string
           nullable: true
           readOnly: true
+        mentions:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              username:
+                type: string
+            required:
+            - id
+            - username
+          readOnly: true
         created_at:
           type: string
           format: date-time
@@ -1024,6 +1037,7 @@ components:
       - id
       - is_deleted
       - issue
+      - mentions
       - updated_at
     CommentInput:
       type: object

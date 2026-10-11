@@ -16,6 +16,7 @@ COMMENT_FIELDS = {
     'issue',
     'author',
     'body',
+    'mentions',
     'created_at',
     'updated_at',
     'edited_at',
@@ -62,6 +63,7 @@ class AddCommentTests(CommentEndpointTestCase):
                 'issue': self.issue.id,
                 'author': {'id': self.member.id, 'username': 'member'},
                 'body': 'The login endpoint returns 401.',
+                'mentions': [],
                 'created_at': response.data['created_at'],
                 'updated_at': response.data['updated_at'],
                 'edited_at': None,
@@ -815,3 +817,182 @@ class DeleteCommentTests(CommentEndpointTestCase):
         other.refresh_from_db()
         self.assertFalse(other.is_deleted)
         self.assertEqual(other.body, 'Keep me')
+
+
+class MentionTests(CommentEndpointTestCase):
+
+    def refs(self, *users):
+        return [{'id': user.id, 'username': user.username} for user in users]
+
+    def mentions_of(self, response):
+        return response.data['mentions']
+
+    def test_project_members_in_the_text_are_mentioned(self):
+        response = self.post(
+            '@member could you review this? cc @viewer and @manager'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            self.mentions_of(response),
+            self.refs(self.member, self.viewer, self.manager),
+        )
+
+        comment = Comment.objects.get()
+        self.assertEqual(
+            set(comment.mentions.all()),
+            {self.member, self.viewer, self.manager},
+        )
+
+    def test_the_text_is_stored_exactly_as_written(self):
+        response = self.post('Please look, @member.')
+
+        self.assertEqual(response.data['body'], 'Please look, @member.')
+        self.assertEqual(self.mentions_of(response), self.refs(self.member))
+
+    def test_people_outside_the_project_and_unknown_names_are_not_mentioned(self):
+        response = self.post('@newcomer @ghost @member')
+
+        self.assertEqual(self.mentions_of(response), self.refs(self.member))
+        self.assertEqual(
+            list(Comment.objects.get().mentions.all()), [self.member],
+        )
+
+    def test_matching_ignores_case_and_returns_the_real_username(self):
+        response = self.post('Hi @MEMBER')
+
+        self.assertEqual(self.mentions_of(response), self.refs(self.member))
+
+    def test_mentions_follow_the_order_of_the_text_without_duplicates(self):
+        response = self.post('@viewer then @member then @viewer again')
+
+        self.assertEqual(
+            self.mentions_of(response), self.refs(self.viewer, self.member),
+        )
+
+    def test_email_addresses_are_not_mentions(self):
+        response = self.post('write to member@example.com')
+
+        self.assertEqual(self.mentions_of(response), [])
+
+    def test_authors_may_mention_themselves(self):
+        response = self.post('note to self @manager')
+
+        self.assertEqual(self.mentions_of(response), self.refs(self.manager))
+
+    def test_user_ids_sent_by_the_client_are_ignored(self):
+        response = self.client.post(
+            self.list_url(),
+            {
+                'body': 'No mentions in this text',
+                'mentions': [self.newcomer.id, self.member.id],
+                'mention_ids': [self.newcomer.id],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(self.mentions_of(response), [])
+        self.assertFalse(Comment.objects.get().mentions.exists())
+
+    def test_membership_is_checked_against_the_issues_own_project(self):
+        other = Project.objects.create(
+            key='OTH', name='Other', created_by=self.newcomer,
+        )
+        self.add_member(self.newcomer, ProjectMember.Role.PROJECT_MANAGER, other)
+        self.add_member(self.manager, ProjectMember.Role.PROJECT_MANAGER, other)
+        other_issue = self.make_issue(1, project=other)
+
+        # `member` belongs to the first project only.
+        response = self.post('@member @newcomer', issue=other_issue)
+
+        self.assertEqual(self.mentions_of(response), self.refs(self.newcomer))
+
+    def test_mentions_are_listed_and_retrievable(self):
+        created = self.post('hello @member')
+
+        listed = self.client.get(self.list_url()).data['results'][0]
+        fetched = self.client.get(
+            f"{self.list_url()}{created.data['id']}/"
+        ).data
+
+        self.assertEqual(listed['mentions'], self.refs(self.member))
+        self.assertEqual(fetched['mentions'], self.refs(self.member))
+
+    def test_editing_recomputes_the_mentions(self):
+        self.client.force_authenticate(user=self.manager)
+        created = self.post('hello @member and @viewer')
+        url = f"{self.list_url()}{created.data['id']}/"
+
+        response = self.client.patch(
+            url, {'body': 'hello @viewer and @manager'}, format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            self.mentions_of(response), self.refs(self.viewer, self.manager),
+        )
+        self.assertEqual(
+            set(Comment.objects.get().mentions.all()),
+            {self.viewer, self.manager},
+        )
+
+    def test_editing_drops_people_who_left_the_project(self):
+        created = self.post('hello @member')
+        url = f"{self.list_url()}{created.data['id']}/"
+        ProjectMember.objects.filter(
+            project=self.project, user=self.member,
+        ).delete()
+
+        response = self.client.patch(
+            url, {'body': 'hello @member, again'}, format='json',
+        )
+
+        self.assertEqual(self.mentions_of(response), [])
+        self.assertFalse(Comment.objects.get().mentions.exists())
+
+    def test_deleting_removes_the_mentions(self):
+        created = self.post('hello @member')
+        url = f"{self.list_url()}{created.data['id']}/"
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.mentions_of(response), [])
+        self.assertFalse(Comment.objects.get().mentions.exists())
+
+    def test_rejected_comments_record_no_mentions(self):
+        self.client.force_authenticate(user=self.viewer)
+
+        self.assertEqual(self.post('@member').status_code, 403)
+
+        self.assertFalse(Comment.objects.exists())
+
+    def test_query_count_does_not_grow_with_mentions(self):
+        self.post('@member')
+
+        with CaptureQueriesContext(connection) as one:
+            self.client.get(self.list_url())
+
+        for _ in range(9):
+            self.post('@member @viewer @manager')
+
+        with CaptureQueriesContext(connection) as ten:
+            self.client.get(self.list_url())
+
+        self.assertEqual(len(ten), len(one))
+
+    def test_a_deleted_comment_never_exposes_mentions_or_text(self):
+        # Defence in depth: even if a deleted row somehow kept its text and
+        # mentions (say, from a manual data fix), the API shows neither.
+        comment = self.make_comment(
+            self.member, body='secret @viewer', deleted_at=timezone.now(),
+            deleted_by=self.member,
+        )
+        comment.mentions.set([self.viewer])
+
+        response = self.client.get(f"{self.list_url()}{comment.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.data['body'])
+        self.assertEqual(response.data['mentions'], [])
