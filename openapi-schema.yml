@@ -374,6 +374,22 @@ paths:
   /api/v1/projects/:
     get:
       operationId: projects_list
+      parameters:
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Case-insensitive match against project name or key. Search only includes active projects you belong to.
+      - in: query
+        name: page
+        schema:
+          type: integer
+        description: One-based page number; defaults to 1.
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+        description: Results per page; defaults to 20 and is capped at 100.
       tags:
       - v1
       security:
@@ -552,25 +568,43 @@ paths:
       operationId: v1_projects_issues_retrieve
       parameters:
       - in: query
+        name: search
+        schema:
+          type: string
+        description: Case-insensitive match against issue title or description, or an exact issue key such as API-12.
+      - in: query
         name: assignee
         schema:
           type: integer
+        description: Filter by a positive project member user ID.
       - in: query
         name: issue_type
         schema:
           type: string
+          enum:
+          - TASK
+          - BUG
+          - STORY
+          - EPIC
       - in: query
         name: page
         schema:
           type: integer
+        description: One-based page number; defaults to 1.
       - in: query
         name: page_size
         schema:
           type: integer
+        description: Results per page; defaults to 20 and is capped at 100.
       - in: query
         name: priority
         schema:
           type: string
+          enum:
+          - LOW
+          - MEDIUM
+          - HIGH
+          - URGENT
       - in: path
         name: project_id
         schema:
@@ -580,6 +614,11 @@ paths:
         name: status
         schema:
           type: string
+          enum:
+          - TODO
+          - IN_PROGRESS
+          - IN_REVIEW
+          - DONE
       tags:
       - v1
       security:

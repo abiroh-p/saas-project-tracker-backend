@@ -1,6 +1,7 @@
+from django.db.models import Q
+from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
-from django.shortcuts import get_object_or_404
 from rest_framework import status
 from .pagination import ProjectPagination
 from rest_framework.permissions import IsAuthenticated
@@ -37,6 +38,28 @@ class ProjectListCreateView(APIView):
 
     @extend_schema(
         operation_id='projects_list',
+        parameters=[
+            OpenApiParameter(
+                'search',
+                OpenApiTypes.STR,
+                description=(
+                    'Case-insensitive match against project name or key. '
+                    'Search only includes active projects you belong to.'
+                ),
+            ),
+            OpenApiParameter(
+                'page',
+                int,
+                description='One-based page number; defaults to 1.',
+            ),
+            OpenApiParameter(
+                'page_size',
+                int,
+                description=(
+                    'Results per page; defaults to 20 and is capped at 100.'
+                ),
+            ),
+        ],
         responses=paginated(ProjectSerializer),
     )
     def get(self, request):
@@ -49,6 +72,13 @@ class ProjectListCreateView(APIView):
             .order_by('-created_at', '-id')
             .prefetch_related('members')
         )
+
+        search_term = request.query_params.get('search', '').strip()
+        if search_term:
+            projects = projects.filter(
+                Q(name__icontains=search_term)
+                | Q(key__icontains=search_term)
+            )
 
         paginator = ProjectPagination()
         page = paginator.paginate_queryset(

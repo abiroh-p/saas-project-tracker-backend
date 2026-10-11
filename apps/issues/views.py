@@ -1,11 +1,16 @@
+import re
+
+from django.db.models import Q
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
-from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .pagination import IssuePagination
+
+from .pagination import CommentPagination, IssuePagination
 
 from config.responses import api_error
 from config.schema import paginated
@@ -15,8 +20,9 @@ from apps.projects.services.membership import (
     get_project_membership,
 )
 
-from .models import Issue
+from .models import Comment, Issue
 from .serializers import (
+    CommentSerializer,
     IssueSerializer,
     IssueTransitionSerializer,
 )
@@ -42,12 +48,49 @@ class ProjectIssueListCreateView(APIView):
 
     @extend_schema(
         parameters=[
-            OpenApiParameter('status', str),
-            OpenApiParameter('priority', str),
-            OpenApiParameter('issue_type', str),
-            OpenApiParameter('assignee', int),
-            OpenApiParameter('page', int),
-            OpenApiParameter('page_size', int),
+            OpenApiParameter(
+                'search',
+                OpenApiTypes.STR,
+                description=(
+                    'Case-insensitive match against issue title or '
+                    'description, or an exact issue key such as API-12.'
+                ),
+            ),
+            OpenApiParameter(
+                'status',
+                str,
+                enum=[choice[0] for choice in Issue.Status.choices],
+                description='Filter by a declared issue status.',
+            ),
+            OpenApiParameter(
+                'priority',
+                str,
+                enum=[choice[0] for choice in Issue.Priority.choices],
+                description='Filter by a declared issue priority.',
+            ),
+            OpenApiParameter(
+                'issue_type',
+                str,
+                enum=[choice[0] for choice in Issue.IssueType.choices],
+                description='Filter by a declared issue type.',
+            ),
+            OpenApiParameter(
+                'assignee',
+                int,
+                description='Filter by a positive project member user ID.',
+            ),
+            OpenApiParameter(
+                'page',
+                int,
+                description='One-based page number; defaults to 1.',
+            ),
+            OpenApiParameter(
+                'page_size',
+                int,
+                description=(
+                    'Results per page; defaults to 20 and is capped at 100.'
+                ),
+            ),
         ],
         responses=paginated(IssueSerializer),
     )
@@ -71,6 +114,7 @@ class ProjectIssueListCreateView(APIView):
         priority_filter = request.query_params.get('priority')
         issue_type_filter = request.query_params.get('issue_type')
         assignee_filter = request.query_params.get('assignee')
+        search_term = request.query_params.get('search', '').strip()
 
         valid_statuses = {
             choice[0]
@@ -117,8 +161,30 @@ class ProjectIssueListCreateView(APIView):
                     'bad_request',
                     status.HTTP_400_BAD_REQUEST,
                 )
+            if assignee_id < 1:
+                return api_error(
+                    'Invalid assignee filter.',
+                    'bad_request',
+                    status.HTTP_400_BAD_REQUEST,
+                )
         else:
             assignee_id = None
+
+        if search_term:
+            search_query = (
+                Q(title__icontains=search_term)
+                | Q(description__icontains=search_term)
+            )
+            issue_key_match = re.fullmatch(
+                rf'{re.escape(project.key)}-(\d+)',
+                search_term,
+                flags=re.IGNORECASE,
+            )
+            if issue_key_match:
+                search_query |= Q(
+                    issue_number=int(issue_key_match.group(1))
+                )
+            issues = issues.filter(search_query)
 
         if status_filter:
             issues = issues.filter(status=status_filter)
@@ -341,3 +407,132 @@ class IssueTransitionView(APIView):
         response_serializer = IssueSerializer(issue)
 
         return Response(response_serializer.data)
+
+
+class IssueCommentListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_issue(self, issue_id, user):
+        return get_object_or_404(
+            Issue.objects.select_related('project').filter(
+                id=issue_id,
+                project__members__user=user,
+                project__is_archived=False,
+            )
+        )
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter('page', int),
+            OpenApiParameter('page_size', int),
+        ],
+        responses=paginated(CommentSerializer),
+    )
+    def get(self, request, issue_id):
+        issue = self.get_issue(issue_id, request.user)
+        comments = (
+            Comment.objects
+            .filter(issue=issue)
+            .select_related('author')
+        )
+        paginator = CommentPagination()
+        page = paginator.paginate_queryset(comments, request, view=self)
+        return paginator.get_paginated_response(
+            CommentSerializer(page, many=True).data
+        )
+
+    @extend_schema(request=CommentSerializer, responses={201: CommentSerializer})
+    def post(self, request, issue_id):
+        issue = self.get_issue(issue_id, request.user)
+        membership = get_project_membership(
+            project=issue.project,
+            user=request.user,
+        )
+        if membership.role == membership.Role.VIEWER:
+            return api_error(
+                'Viewers cannot add comments.',
+                'permission_denied',
+                status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = CommentSerializer(
+            data=request.data,
+            context={'issue': issue},
+        )
+        serializer.is_valid(raise_exception=True)
+        comment = Comment.objects.create(
+            issue=issue,
+            author=request.user,
+            body=serializer.validated_data['body'],
+        )
+        return Response(
+            CommentSerializer(comment).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class IssueCommentDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_comment(self, issue_id, comment_id, user):
+        issue = get_object_or_404(
+            Issue.objects.filter(
+                id=issue_id,
+                project__members__user=user,
+                project__is_archived=False,
+            )
+        )
+        return get_object_or_404(
+            Comment.objects.select_related('author', 'issue__project'),
+            issue=issue,
+            id=comment_id,
+        )
+
+    @extend_schema(request=CommentSerializer, responses=CommentSerializer)
+    def patch(self, request, issue_id, comment_id):
+        comment = self.get_comment(issue_id, comment_id, request.user)
+        if comment.author_id != request.user.id:
+            return api_error(
+                'You can only edit your own comments.',
+                'permission_denied',
+                status.HTTP_403_FORBIDDEN,
+            )
+        if comment.is_deleted:
+            return api_error(
+                'Deleted comments cannot be edited.',
+                'bad_request',
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = CommentSerializer(
+            comment,
+            data=request.data,
+            partial=True,
+            context={'issue': comment.issue},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(CommentSerializer(comment).data)
+
+    @extend_schema(request=None, responses={200: CommentSerializer})
+    def delete(self, request, issue_id, comment_id):
+        comment = self.get_comment(issue_id, comment_id, request.user)
+        if comment.author_id != request.user.id:
+            return api_error(
+                'You can only delete your own comments.',
+                'permission_denied',
+                status.HTTP_403_FORBIDDEN,
+            )
+        if not comment.is_deleted:
+            comment.body = None
+            comment.is_deleted = True
+            comment.deleted_at = timezone.now()
+            comment.save(
+                update_fields=[
+                    'body',
+                    'is_deleted',
+                    'deleted_at',
+                    'updated_at',
+                ]
+            )
+        return Response(CommentSerializer(comment).data)

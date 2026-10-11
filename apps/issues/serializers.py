@@ -1,7 +1,11 @@
+import re
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from .models import Issue
+from apps.projects.models import ProjectMember
+
+from .models import Comment, Issue
 
 
 class IssueSerializer(serializers.ModelSerializer):
@@ -121,3 +125,67 @@ class IssueTransitionSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=Issue.Status.choices,
     )
+
+
+class CommentSerializer(serializers.ModelSerializer):
+    author = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Comment
+        fields = [
+            'id',
+            'issue',
+            'author',
+            'body',
+            'created_at',
+            'updated_at',
+            'is_deleted',
+            'deleted_at',
+        ]
+        read_only_fields = [
+            'id',
+            'issue',
+            'author',
+            'created_at',
+            'updated_at',
+            'is_deleted',
+            'deleted_at',
+        ]
+
+    @extend_schema_field({
+        'type': 'object',
+        'properties': {
+            'id': {'type': 'integer'},
+            'username': {'type': 'string'},
+        },
+        'required': ['id', 'username'],
+    })
+    def get_author(self, comment):
+        return {
+            'id': comment.author_id,
+            'username': comment.author.username,
+        }
+
+    def validate_body(self, value):
+        body = value.strip()
+        if not body:
+            raise serializers.ValidationError(
+                'Comment cannot be empty.'
+            )
+
+        issue = self.context['issue']
+        usernames = set(re.findall(r'(?<![\w@])@([\w.-]+)', body))
+        if usernames:
+            valid_usernames = set(
+                ProjectMember.objects.filter(
+                    project=issue.project,
+                    user__username__in=usernames,
+                ).values_list('user__username', flat=True)
+            )
+            unknown = usernames - valid_usernames
+            if unknown:
+                raise serializers.ValidationError(
+                    'Mentions must refer to members of this project.'
+                )
+
+        return body

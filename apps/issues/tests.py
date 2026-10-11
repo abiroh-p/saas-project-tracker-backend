@@ -3,7 +3,7 @@ from django.db import IntegrityError, transaction
 from rest_framework.test import APITestCase
 
 from apps.projects.models import Project, ProjectMember
-from apps.issues.models import Issue
+from apps.issues.models import Comment, Issue
 from .services.issue import (
     create_issue,
     update_issue,
@@ -1981,3 +1981,398 @@ class IssueAPITestCase(APITestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['due_date'], '2026-06-15')
+
+    def test_issue_search_matches_title_and_description_case_insensitively(self):
+        title_match = Issue.objects.create(
+            project=self.project,
+            issue_number=1,
+            title='Fix LOGIN flow',
+            reporter=self.manager,
+        )
+        description_match = Issue.objects.create(
+            project=self.project,
+            issue_number=2,
+            title='Credential flow',
+            description='The login token expires too soon.',
+            reporter=self.manager,
+        )
+        Issue.objects.create(
+            project=self.project,
+            issue_number=3,
+            title='Unrelated work',
+            reporter=self.manager,
+        )
+        self.authenticate(self.member)
+
+        response = self.client.get(
+            f'/api/v1/projects/{self.project.id}/issues/',
+            {'search': 'login'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['count'], 2)
+        self.assertEqual(
+            {item['id'] for item in response.data['results']},
+            {title_match.id, description_match.id},
+        )
+
+    def test_issue_search_matches_exact_issue_key(self):
+        target = Issue.objects.create(
+            project=self.project,
+            issue_number=12,
+            title='Unrelated title',
+            reporter=self.manager,
+        )
+        Issue.objects.create(
+            project=self.project,
+            issue_number=1,
+            title='Another unrelated title',
+            reporter=self.manager,
+        )
+        self.authenticate(self.member)
+
+        response = self.client.get(
+            f'/api/v1/projects/{self.project.id}/issues/',
+            {'search': 'api-12'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['id'], target.id)
+
+    def test_issue_search_combines_with_existing_filters(self):
+        match = Issue.objects.create(
+            project=self.project,
+            issue_number=1,
+            title='Login failure',
+            reporter=self.manager,
+            assignee=self.member,
+            status=Issue.Status.IN_PROGRESS,
+            priority=Issue.Priority.HIGH,
+            issue_type=Issue.IssueType.BUG,
+        )
+        Issue.objects.create(
+            project=self.project,
+            issue_number=2,
+            title='Login follow-up',
+            reporter=self.manager,
+            assignee=self.member,
+            status=Issue.Status.TODO,
+            priority=Issue.Priority.HIGH,
+            issue_type=Issue.IssueType.BUG,
+        )
+        Issue.objects.create(
+            project=self.project,
+            issue_number=3,
+            title='Login settings',
+            reporter=self.manager,
+            assignee=self.manager,
+            status=Issue.Status.IN_PROGRESS,
+            priority=Issue.Priority.HIGH,
+            issue_type=Issue.IssueType.BUG,
+        )
+        self.authenticate(self.manager)
+
+        response = self.client.get(
+            f'/api/v1/projects/{self.project.id}/issues/',
+            {
+                'search': 'login',
+                'status': Issue.Status.IN_PROGRESS,
+                'priority': Issue.Priority.HIGH,
+                'issue_type': Issue.IssueType.BUG,
+                'assignee': self.member.id,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['id'], match.id)
+
+    def test_issue_search_paginates_filtered_results_and_stays_in_project(self):
+        matching_ids = set()
+        for issue_number in range(1, 4):
+            issue = Issue.objects.create(
+                project=self.project,
+                issue_number=issue_number,
+                title=f'Login task {issue_number}',
+                reporter=self.manager,
+            )
+            matching_ids.add(issue.id)
+
+        other_project = Project.objects.create(
+            key='OTHER',
+            name='Other project',
+            created_by=self.manager,
+        )
+        ProjectMember.objects.create(
+            project=other_project,
+            user=self.manager,
+            role=ProjectMember.Role.PROJECT_MANAGER,
+        )
+        Issue.objects.create(
+            project=other_project,
+            issue_number=1,
+            title='Login elsewhere',
+            reporter=self.manager,
+        )
+        self.authenticate(self.member)
+
+        response = self.client.get(
+            f'/api/v1/projects/{self.project.id}/issues/',
+            {'search': 'login', 'page': 1, 'page_size': 2},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['count'], 3)
+        self.assertEqual(len(response.data['results']), 2)
+        self.assertTrue(
+            {item['id'] for item in response.data['results']}
+            <= matching_ids
+        )
+
+    def test_non_matching_issue_search_returns_empty_results(self):
+        self.authenticate(self.member)
+
+        response = self.client.get(
+            f'/api/v1/projects/{self.project.id}/issues/',
+            {'search': 'no such issue'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['count'], 0)
+        self.assertEqual(response.data['results'], [])
+
+    def test_assignee_filter_rejects_non_positive_ids(self):
+        self.authenticate(self.manager)
+
+        response = self.client.get(
+            f'/api/v1/projects/{self.project.id}/issues/',
+            {'assignee': 0},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data['detail'], 'Invalid assignee filter.')
+
+
+class IssueCommentAPITestCase(APITestCase):
+
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username='comment_manager',
+            password='TestPassword123',
+        )
+        self.member = User.objects.create_user(
+            username='comment_member',
+            password='TestPassword123',
+        )
+        self.viewer = User.objects.create_user(
+            username='comment_viewer',
+            password='TestPassword123',
+        )
+        self.outsider = User.objects.create_user(
+            username='comment_outsider',
+            password='TestPassword123',
+        )
+
+        self.project = Project.objects.create(
+            key='CMT',
+            name='Comment project',
+            created_by=self.manager,
+        )
+        for user, role in (
+            (self.manager, ProjectMember.Role.PROJECT_MANAGER),
+            (self.member, ProjectMember.Role.TEAM_MEMBER),
+            (self.viewer, ProjectMember.Role.VIEWER),
+        ):
+            ProjectMember.objects.create(
+                project=self.project,
+                user=user,
+                role=role,
+            )
+
+        self.issue = Issue.objects.create(
+            project=self.project,
+            issue_number=1,
+            title='Commented issue',
+            reporter=self.manager,
+        )
+
+    def authenticate(self, user):
+        self.client.force_authenticate(user=user)
+
+    def comments_url(self):
+        return f'/api/v1/issues/{self.issue.id}/comments/'
+
+    def test_member_can_create_comment_with_authenticated_author(self):
+        self.authenticate(self.member)
+
+        response = self.client.post(
+            self.comments_url(),
+            {
+                'body': 'Please review this.',
+                'author': self.manager.id,
+                'issue': 999,
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data['issue'], self.issue.id)
+        self.assertEqual(
+            response.data['author'],
+            {'id': self.member.id, 'username': self.member.username},
+        )
+        self.assertEqual(Comment.objects.get().author, self.member)
+
+    def test_empty_comment_is_rejected(self):
+        self.authenticate(self.member)
+
+        response = self.client.post(
+            self.comments_url(),
+            {'body': '   '},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('body', response.data['errors'])
+        self.assertFalse(Comment.objects.exists())
+
+    def test_viewer_can_read_but_cannot_add_comments(self):
+        Comment.objects.create(
+            issue=self.issue,
+            author=self.manager,
+            body='Existing comment',
+        )
+        self.authenticate(self.viewer)
+
+        listed = self.client.get(self.comments_url())
+        created = self.client.post(
+            self.comments_url(),
+            {'body': 'New comment'},
+            format='json',
+        )
+
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.data['count'], 1)
+        self.assertEqual(created.status_code, 403)
+        self.assertEqual(Comment.objects.count(), 1)
+
+    def test_non_member_cannot_read_comments(self):
+        self.authenticate(self.outsider)
+
+        response = self.client.get(self.comments_url())
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_author_can_edit_own_comment(self):
+        comment = Comment.objects.create(
+            issue=self.issue,
+            author=self.member,
+            body='Original text',
+        )
+        created_at = comment.created_at
+        self.authenticate(self.member)
+
+        response = self.client.patch(
+            f'{self.comments_url()}{comment.id}/',
+            {'body': 'Corrected text'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['body'], 'Corrected text')
+        comment.refresh_from_db()
+        self.assertEqual(comment.body, 'Corrected text')
+        self.assertEqual(comment.created_at, created_at)
+        self.assertGreaterEqual(comment.updated_at, created_at)
+
+    def test_other_member_cannot_edit_or_delete_comment(self):
+        comment = Comment.objects.create(
+            issue=self.issue,
+            author=self.member,
+            body='Member comment',
+        )
+        self.authenticate(self.manager)
+        comment_url = f'{self.comments_url()}{comment.id}/'
+
+        edited = self.client.patch(
+            comment_url,
+            {'body': 'Changed by manager'},
+            format='json',
+        )
+        deleted = self.client.delete(comment_url)
+
+        self.assertEqual(edited.status_code, 403)
+        self.assertEqual(deleted.status_code, 403)
+        comment.refresh_from_db()
+        self.assertEqual(comment.body, 'Member comment')
+        self.assertFalse(comment.is_deleted)
+
+    def test_delete_soft_deletes_comment(self):
+        comment = Comment.objects.create(
+            issue=self.issue,
+            author=self.member,
+            body='Remove this comment',
+        )
+        self.authenticate(self.member)
+
+        response = self.client.delete(
+            f'{self.comments_url()}{comment.id}/'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.data['body'])
+        self.assertTrue(response.data['is_deleted'])
+        self.assertIsNotNone(response.data['deleted_at'])
+        comment.refresh_from_db()
+        self.assertTrue(comment.is_deleted)
+        self.assertIsNone(comment.body)
+
+    def test_comments_are_ordered_and_paginated(self):
+        comments = [
+            Comment.objects.create(
+                issue=self.issue,
+                author=self.manager,
+                body=f'Comment {number}',
+            )
+            for number in range(3)
+        ]
+        self.authenticate(self.member)
+
+        first_page = self.client.get(
+            self.comments_url(),
+            {'page': 1, 'page_size': 2},
+        )
+        second_page = self.client.get(
+            self.comments_url(),
+            {'page': 2, 'page_size': 2},
+        )
+
+        self.assertEqual(first_page.status_code, 200)
+        self.assertEqual(first_page.data['count'], 3)
+        self.assertEqual(
+            [item['id'] for item in first_page.data['results']],
+            [comments[0].id, comments[1].id],
+        )
+        self.assertEqual(
+            [item['id'] for item in second_page.data['results']],
+            [comments[2].id],
+        )
+
+    def test_mentions_must_be_project_members(self):
+        self.authenticate(self.member)
+
+        accepted = self.client.post(
+            self.comments_url(),
+            {'body': f'@{self.manager.username} please review.'},
+            format='json',
+        )
+        rejected = self.client.post(
+            self.comments_url(),
+            {'body': '@comment_outsider please review.'},
+            format='json',
+        )
+
+        self.assertEqual(accepted.status_code, 201)
+        self.assertEqual(rejected.status_code, 400)
+        self.assertEqual(Comment.objects.count(), 1)

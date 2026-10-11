@@ -714,3 +714,119 @@ class ProjectKeyValidationTestCase(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data[0]['full_name'], 'Key Owner')
+
+
+class ProjectSearchAPITestCase(APITestCase):
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='search_user',
+            password='TestPassword123',
+        )
+        self.other_user = User.objects.create_user(
+            username='search_other',
+            password='TestPassword123',
+        )
+
+        self.roadmap_projects = [
+            self.create_project(
+                key=f'RD{number}',
+                name=f'Roadmap {number}',
+                member=self.user,
+            )
+            for number in range(1, 4)
+        ]
+        self.key_match = self.create_project(
+            key='TRK',
+            name='Board project',
+            member=self.user,
+        )
+        self.private_match = self.create_project(
+            key='PRIV',
+            name='Roadmap private',
+            member=self.other_user,
+        )
+        self.archived_match = self.create_project(
+            key='OLD',
+            name='Roadmap archived',
+            member=self.user,
+            is_archived=True,
+        )
+
+        self.client.force_authenticate(user=self.user)
+
+    def create_project(self, *, key, name, member, is_archived=False):
+        project = Project.objects.create(
+            key=key,
+            name=name,
+            created_by=member,
+            is_archived=is_archived,
+        )
+        ProjectMember.objects.create(
+            project=project,
+            user=member,
+            role=ProjectMember.Role.PROJECT_MANAGER,
+        )
+        return project
+
+    def test_search_matches_project_name_case_insensitively(self):
+        response = self.client.get(
+            '/api/v1/projects/',
+            {'search': 'roadmap'},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 3)
+        self.assertEqual(
+            {item['id'] for item in response.data['results']},
+            {project.id for project in self.roadmap_projects},
+        )
+
+    def test_search_matches_project_key_case_insensitively(self):
+        response = self.client.get(
+            '/api/v1/projects/',
+            {'search': 'trk'},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['id'], self.key_match.id)
+
+    def test_non_matching_project_search_returns_empty_results(self):
+        response = self.client.get(
+            '/api/v1/projects/',
+            {'search': 'does-not-exist'},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 0)
+        self.assertEqual(response.data['results'], [])
+
+    def test_search_paginates_after_membership_and_archive_filtering(self):
+        response = self.client.get(
+            '/api/v1/projects/',
+            {'search': 'roadmap', 'page': 1, 'page_size': 2},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 3)
+        self.assertEqual(len(response.data['results']), 2)
+        returned_ids = {item['id'] for item in response.data['results']}
+        self.assertTrue(
+            returned_ids <= {project.id for project in self.roadmap_projects}
+        )
+        self.assertNotIn(self.private_match.id, returned_ids)
+        self.assertNotIn(self.archived_match.id, returned_ids)
+
+    def test_search_cannot_reveal_projects_user_does_not_belong_to(self):
+        response = self.client.get(
+            '/api/v1/projects/',
+            {'search': 'private'},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 0)
+        self.assertNotIn(
+            self.private_match.id,
+            {item['id'] for item in response.data['results']},
+        )
