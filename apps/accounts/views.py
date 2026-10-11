@@ -1,6 +1,7 @@
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -130,7 +131,7 @@ class ChangePasswordView(APIView):
 
 
 class UserSearchView(APIView):
-    """Search active users by username (for member / assignee pickers)."""
+    """Search active users by name or username (for member / assignee pickers)."""
 
     permission_classes = [IsAuthenticated]
 
@@ -148,10 +149,20 @@ class UserSearchView(APIView):
         User = get_user_model()
         users = (
             User.objects
-            .filter(is_active=True, username__icontains=term)
-            .order_by("username")[:10]
+            .filter(is_active=True)
+            .filter(
+                Q(username__icontains=term) | Q(full_name__icontains=term)
+            )
+            .order_by("full_name", "username")[:10]
         )
 
         return Response(
-            [{"id": u.id, "username": u.username} for u in users]
+            [
+                {
+                    "id": u.id,
+                    "username": u.username,
+                    "full_name": u.full_name,
+                }
+                for u in users
+            ]
         )
