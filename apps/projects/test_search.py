@@ -137,7 +137,14 @@ class ProjectSearchTests(ProjectSearchTestCase):
     def test_unicode_search(self):
         self.make_project('CAFE', 'Café redesign')
 
-        self.assertEqual(self.keys(self.get({'search': 'CAFÉ'})), ['CAFE'])
+        self.assertEqual(self.keys(self.get({'search': 'Café'})), ['CAFE'])
+
+        # Folding the case of non-ASCII letters is up to the database:
+        # PostgreSQL does it, SQLite only folds ASCII.
+        if connection.vendor == 'postgresql':
+            self.assertEqual(
+                self.keys(self.get({'search': 'CAFÉ'})), ['CAFE'],
+            )
 
     def test_search_keeps_newest_first_order(self):
         self.make_project('TRK1', 'Tracker one')

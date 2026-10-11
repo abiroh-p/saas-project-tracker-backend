@@ -11,7 +11,7 @@ from rest_framework.views import APIView
 from config.query_params import QueryParamError
 from config.responses import api_error
 
-from .params import get_trend_params
+from .params import MAX_REPORT_DATE, MIN_REPORT_DATE, get_trend_params
 from .serializers import (
     AssigneeWorkloadSerializer,
     PriorityDistributionSerializer,
@@ -157,7 +157,11 @@ class AssigneeWorkloadReportView(ProjectReportView):
                 name='date_from',
                 type=str,
                 required=True,
-                description='First day, `YYYY-MM-DD`, inclusive.',
+                description=(
+                    'First day, `YYYY-MM-DD`, inclusive. Between '
+                    f'{MIN_REPORT_DATE.isoformat()} and '
+                    f'{MAX_REPORT_DATE.isoformat()}.'
+                ),
             ),
             OpenApiParameter(
                 name='date_to',
@@ -165,7 +169,9 @@ class AssigneeWorkloadReportView(ProjectReportView):
                 required=True,
                 description=(
                     'Last day, `YYYY-MM-DD`, inclusive. Must not be before '
-                    f'`date_from`; the range is at most {MAX_RANGE_DAYS} days.'
+                    f'`date_from`; the range is at most {MAX_RANGE_DAYS} '
+                    f'days. Between {MIN_REPORT_DATE.isoformat()} and '
+                    f'{MAX_REPORT_DATE.isoformat()}.'
                 ),
             ),
             OpenApiParameter(
