@@ -1,5 +1,6 @@
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from .pagination import ProjectPagination
@@ -7,6 +8,11 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from config.query_params import (
+    QueryParamError,
+    SEARCH_MAX_LENGTH,
+    get_search_term,
+)
 from config.responses import api_error
 from config.schema import paginated
 
@@ -37,14 +43,59 @@ class ProjectListCreateView(APIView):
 
     @extend_schema(
         operation_id='projects_list',
+        parameters=[
+            OpenApiParameter(
+                name='search',
+                type=str,
+                required=False,
+                description=(
+                    'Case-insensitive text search over the project name and '
+                    'key (partial matches allowed). Only projects you are a '
+                    f'member of are searched. Up to {SEARCH_MAX_LENGTH} '
+                    'characters; an empty value means no search. An invalid '
+                    'value returns 400 with code `bad_request`.'
+                ),
+            ),
+            OpenApiParameter(
+                name='page',
+                type=int,
+                required=False,
+                description='Page number, starting at 1.',
+            ),
+            OpenApiParameter(
+                name='page_size',
+                type=int,
+                required=False,
+                description='Results per page (default 20, capped at 100).',
+            ),
+        ],
         responses=paginated(ProjectSerializer),
     )
     def get(self, request):
-        projects = (
-            Project.objects.filter(
-                members__user=request.user,
-                is_archived=False,
+        try:
+            search = get_search_term(request.query_params)
+        except QueryParamError as exc:
+            return api_error(
+                str(exc),
+                'bad_request',
+                status.HTTP_400_BAD_REQUEST,
             )
+
+        # Access control comes first; search only narrows what the user can
+        # already see.
+        projects = Project.objects.filter(
+            members__user=request.user,
+            is_archived=False,
+        )
+
+        if search:
+            projects = projects.filter(
+                Q(name__icontains=search) | Q(key__icontains=search)
+            )
+
+        projects = (
+            projects
+            .select_related('created_by')
             .distinct()
             .order_by('-created_at', '-id')
             .prefetch_related('members')

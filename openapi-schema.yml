@@ -513,6 +513,25 @@ paths:
   /api/v1/projects/:
     get:
       operationId: projects_list
+      parameters:
+      - in: query
+        name: page
+        schema:
+          type: integer
+        description: Page number, starting at 1.
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+        description: Results per page (default 20, capped at 100).
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Case-insensitive text search over the project name and key (partial
+          matches allowed). Only projects you are a member of are searched. Up to
+          100 characters; an empty value means no search. An invalid value returns
+          400 with code `bad_request`.
       tags:
       - v1
       security:
@@ -694,31 +713,99 @@ paths:
         name: assignee
         schema:
           type: integer
+        description: Only issues assigned to the user with this id (a positive integer).
+          An invalid value returns 400 with code `bad_request`.
+      - in: query
+        name: due_after
+        schema:
+          type: string
+          format: date
+        description: Only issues due on or after this date (YYYY-MM-DD). Issues without
+          a due date are excluded. It cannot be later than `due_before`. An invalid
+          value returns 400 with code `bad_request`.
+      - in: query
+        name: due_before
+        schema:
+          type: string
+          format: date
+        description: Only issues due on or before this date (YYYY-MM-DD). Issues without
+          a due date are excluded. An invalid value returns 400 with code `bad_request`.
       - in: query
         name: issue_type
         schema:
           type: string
+          enum:
+          - BUG
+          - EPIC
+          - STORY
+          - TASK
+        description: Only issues of this type. An invalid value returns 400 with code
+          `bad_request`.
+      - in: query
+        name: ordering
+        schema:
+          type: string
+          enum:
+          - -created_at
+          - -due_date
+          - -issue_number
+          - -priority
+          - -title
+          - -updated_at
+          - created_at
+          - due_date
+          - issue_number
+          - priority
+          - title
+          - updated_at
+        description: Sort field; prefix with `-` for descending. A single field only.
+          Priority sorts by urgency, title ignores case, and issues without a due
+          date always come last. Ties are broken by id. Defaults to newest first (`-created_at`).
+          An invalid value returns 400 with code `bad_request`.
       - in: query
         name: page
         schema:
           type: integer
+        description: Page number, starting at 1.
       - in: query
         name: page_size
         schema:
           type: integer
+        description: Results per page (default 20, capped at 100).
       - in: query
         name: priority
         schema:
           type: string
+          enum:
+          - HIGH
+          - LOW
+          - MEDIUM
+          - URGENT
+        description: Only issues with this priority. An invalid value returns 400
+          with code `bad_request`.
       - in: path
         name: project_id
         schema:
           type: integer
         required: true
       - in: query
+        name: search
+        schema:
+          type: string
+        description: Case-insensitive text search over the issue title and description,
+          and over the issue key (an exact key such as `API-12`). Up to 100 characters;
+          an empty value means no search. Combined with the other filters using AND.
+      - in: query
         name: status
         schema:
           type: string
+          enum:
+          - DONE
+          - IN_PROGRESS
+          - IN_REVIEW
+          - TODO
+        description: Only issues with this status. An invalid value returns 400 with
+          code `bad_request`.
       tags:
       - v1
       security:
