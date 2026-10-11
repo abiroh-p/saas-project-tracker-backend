@@ -36,7 +36,37 @@ class UserSearchAPITestCase(APITestCase):
             [u['username'] for u in response.data],
             ['alice', 'alicia'],
         )
-        self.assertEqual(set(response.data[0].keys()), {'id', 'username'})
+        self.assertEqual(
+            set(response.data[0].keys()), {'id', 'username', 'full_name'}
+        )
+
+    def test_search_matches_full_name(self):
+        User.objects.create_user(
+            username='psharma',
+            password='TestPassword123',
+            full_name='Priya Sharma',
+        )
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get('/api/v1/accounts/users/?search=priya')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['username'], 'psharma')
+        self.assertEqual(response.data[0]['full_name'], 'Priya Sharma')
+
+    def test_search_does_not_match_or_expose_email(self):
+        User.objects.create_user(
+            username='zed',
+            email='secret.person@example.com',
+            password='TestPassword123',
+        )
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get('/api/v1/accounts/users/?search=secret')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, [])
 
     def test_short_search_term_is_rejected(self):
         self.client.force_authenticate(user=self.user)

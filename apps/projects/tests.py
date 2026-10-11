@@ -646,3 +646,71 @@ class ProjectMembershipAPITestCase(APITestCase):
         )
         self.assertEqual(response.data['reporter'], 'manager')
         self.assertEqual(response.data['assignee'], self.member.id)
+
+
+class ProjectKeyValidationTestCase(APITestCase):
+    url = '/api/v1/projects/'
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='keyowner', password='TestPassword123',
+        )
+        self.client.force_authenticate(user=self.user)
+
+    def create(self, key, **extra):
+        return self.client.post(
+            self.url,
+            {'key': key, 'name': 'Some project', **extra},
+            format='json',
+        )
+
+    def test_key_is_normalised_to_uppercase(self):
+        response = self.create(' web1 ')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['key'], 'WEB1')
+        self.assertTrue(Project.objects.filter(key='WEB1').exists())
+
+    def test_invalid_keys_are_rejected(self):
+        for key in ['A', '1ABC', 'AB CD', 'AB-CD', 'A_B', 'ABCDEFGHIJK']:
+            with self.subTest(key=key):
+                response = self.create(key)
+
+                self.assertEqual(
+                    response.status_code, status.HTTP_400_BAD_REQUEST,
+                )
+                self.assertIn('key', response.data['errors'])
+
+    def test_duplicate_key_is_rejected_case_insensitively(self):
+        self.create('DEMO')
+
+        response = self.create('demo')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(
+            'already exists',
+            response.data['errors']['key'][0],
+        )
+        self.assertEqual(Project.objects.filter(key='DEMO').count(), 1)
+
+    def test_patching_with_the_same_key_is_allowed(self):
+        project_id = self.create('SAME').data['id']
+
+        response = self.client.patch(
+            f'{self.url}{project_id}/',
+            {'key': 'same', 'name': 'Renamed'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['name'], 'Renamed')
+
+    def test_members_list_includes_full_name(self):
+        project_id = self.create('NAMES').data['id']
+        self.user.full_name = 'Key Owner'
+        self.user.save(update_fields=['full_name'])
+
+        response = self.client.get(f'{self.url}{project_id}/members/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data[0]['full_name'], 'Key Owner')

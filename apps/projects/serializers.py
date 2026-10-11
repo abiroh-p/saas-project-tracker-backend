@@ -1,3 +1,5 @@
+import re
+
 from rest_framework import serializers
 
 from django.contrib.auth import get_user_model
@@ -6,6 +8,9 @@ from drf_spectacular.utils import extend_schema_field
 from .models import Project, ProjectMember
 
 User = get_user_model()
+
+# Jira-style: 2-10 characters, starts with a letter, letters and digits only.
+PROJECT_KEY_PATTERN = re.compile(r'^[A-Z][A-Z0-9]{1,9}$')
 
 
 class ProjectSerializer(serializers.ModelSerializer):
@@ -56,6 +61,28 @@ class ProjectSerializer(serializers.ModelSerializer):
 
         return None
 
+    def validate_key(self, value):
+        value = value.strip().upper()
+
+        if not PROJECT_KEY_PATTERN.match(value):
+            raise serializers.ValidationError(
+                'Use 2 to 10 letters or digits, starting with a letter.'
+            )
+
+        # The unique validator ran on the raw input, so check the normalised
+        # value too ('demo' must not slip past an existing 'DEMO').
+        taken = Project.objects.filter(key=value)
+
+        if self.instance is not None:
+            taken = taken.exclude(pk=self.instance.pk)
+
+        if taken.exists():
+            raise serializers.ValidationError(
+                'A project with this key already exists.'
+            )
+
+        return value
+
     def validate(self, attrs):
         if (
             self.instance
@@ -94,6 +121,7 @@ class ProjectSerializer(serializers.ModelSerializer):
 class ProjectMemberSerializer(serializers.ModelSerializer):
     user_id = serializers.IntegerField(source='user.id', read_only=True)
     username = serializers.CharField(source='user.username', read_only=True)
+    full_name = serializers.CharField(source='user.full_name', read_only=True)
     email = serializers.EmailField(source='user.email', read_only=True)
 
     class Meta:
@@ -102,6 +130,7 @@ class ProjectMemberSerializer(serializers.ModelSerializer):
             'id',
             'user_id',
             'username',
+            'full_name',
             'email',
             'role',
             'created_at',

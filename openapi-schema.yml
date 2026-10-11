@@ -196,7 +196,8 @@ paths:
   /api/v1/accounts/users/:
     get:
       operationId: v1_accounts_users_retrieve
-      description: Search active users by username (for member / assignee pickers).
+      description: Search active users by name or username (for member / assignee
+        pickers).
       parameters:
       - in: query
         name: search
@@ -1272,6 +1273,9 @@ components:
         username:
           type: string
           readOnly: true
+        full_name:
+          type: string
+          readOnly: true
         email:
           type: string
           format: email
@@ -1287,6 +1291,7 @@ components:
       required:
       - created_at
       - email
+      - full_name
       - id
       - role
       - user_id
