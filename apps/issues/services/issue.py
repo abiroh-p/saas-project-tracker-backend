@@ -96,6 +96,12 @@ def update_issue(*, issue, validated_data, user):
             'You are not a member of this project.'
         )
 
+    # Viewers are read-only, even for issues they reported or are assigned to.
+    if membership.role == ProjectMember.Role.VIEWER:
+        raise PermissionError(
+            'Viewers cannot edit issues.'
+        )
+
     is_manager = (
         membership.role
         == ProjectMember.Role.PROJECT_MANAGER
