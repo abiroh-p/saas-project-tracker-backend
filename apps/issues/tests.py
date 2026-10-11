@@ -485,6 +485,66 @@ class IssueServiceTestCase(APITestCase):
             'Issue is already in this status.',
         )
 
+    def test_viewer_cannot_update_issue_assigned_to_them(self):
+        issue = Issue.objects.create(
+            project=self.project,
+            issue_number=1,
+            title='Original',
+            reporter=self.manager,
+            assignee=self.viewer,
+        )
+
+        with self.assertRaisesMessage(
+            PermissionError,
+            'Viewers cannot edit issues.',
+        ):
+            update_issue(
+                issue=issue,
+                validated_data={'title': 'Changed'},
+                user=self.viewer,
+            )
+
+        issue.refresh_from_db()
+        self.assertEqual(issue.title, 'Original')
+
+    def test_viewer_cannot_update_issue_they_reported(self):
+        # E.g. a member who was later demoted to viewer.
+        issue = Issue.objects.create(
+            project=self.project,
+            issue_number=1,
+            title='Original',
+            reporter=self.viewer,
+        )
+
+        with self.assertRaises(PermissionError):
+            update_issue(
+                issue=issue,
+                validated_data={'title': 'Changed'},
+                user=self.viewer,
+            )
+
+        issue.refresh_from_db()
+        self.assertEqual(issue.title, 'Original')
+
+    def test_assigned_team_member_can_still_update_issue(self):
+        issue = Issue.objects.create(
+            project=self.project,
+            issue_number=1,
+            title='Original',
+            reporter=self.manager,
+            assignee=self.member,
+        )
+
+        update_issue(
+            issue=issue,
+            validated_data={'title': 'Changed'},
+            user=self.member,
+        )
+
+        issue.refresh_from_db()
+        self.assertEqual(issue.title, 'Changed')
+
+
 class IssueAPITestCase(APITestCase):
 
     def setUp(self):
@@ -1228,6 +1288,49 @@ class IssueAPITestCase(APITestCase):
 
         self.assertEqual(response.status_code, 403)
 
+    def test_viewer_cannot_update_issue_assigned_to_them(self):
+        issue = Issue.objects.create(
+            project=self.project,
+            issue_number=1,
+            title='Original',
+            reporter=self.manager,
+            assignee=self.viewer,
+        )
+        self.authenticate(self.viewer)
+
+        response = self.client.patch(
+            f'/api/v1/issues/{issue.id}/',
+            {'title': 'Changed'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.data['detail'],
+            'Viewers cannot edit issues.',
+        )
+
+        issue.refresh_from_db()
+        self.assertEqual(issue.title, 'Original')
+
+    def test_assigned_team_member_can_update_issue(self):
+        issue = Issue.objects.create(
+            project=self.project,
+            issue_number=1,
+            title='Original',
+            reporter=self.manager,
+            assignee=self.member,
+        )
+        self.authenticate(self.member)
+
+        response = self.client.patch(
+            f'/api/v1/issues/{issue.id}/',
+            {'title': 'Changed'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['title'], 'Changed')
 
     def test_viewer_cannot_transition_issue(self):
         issue = Issue.objects.create(
