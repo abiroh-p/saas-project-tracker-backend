@@ -638,11 +638,19 @@ class ProjectMembershipAPITestCase(APITestCase):
 
         self.assertEqual(
             response.data['assignee_detail'],
-            {'id': self.member.id, 'username': 'member'},
+            {
+                'id': self.member.id,
+                'username': 'member',
+                'full_name': self.member.full_name,
+            },
         )
         self.assertEqual(
             response.data['reporter_detail'],
-            {'id': self.manager.id, 'username': 'manager'},
+            {
+                'id': self.manager.id,
+                'username': 'manager',
+                'full_name': self.manager.full_name,
+            },
         )
         self.assertEqual(response.data['reporter'], 'manager')
         self.assertEqual(response.data['assignee'], self.member.id)

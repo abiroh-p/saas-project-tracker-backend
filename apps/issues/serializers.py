@@ -26,13 +26,17 @@ class IssueSerializer(serializers.ModelSerializer):
         if user is None:
             return None
 
-        return {'id': user.id, 'username': user.username}
+        return {
+            'id': user.id,
+            'username': user.username,
+            'full_name': user.full_name,
+        }
 
-    @extend_schema_field({'type': 'object', 'nullable': True, 'properties': {'id': {'type': 'integer'}, 'username': {'type': 'string'}}})
+    @extend_schema_field({'type': 'object', 'nullable': True, 'properties': {'id': {'type': 'integer'}, 'username': {'type': 'string'}, 'full_name': {'type': 'string'}}})
     def get_reporter_detail(self, obj):
         return self._user_brief(obj.reporter)
 
-    @extend_schema_field({'type': 'object', 'nullable': True, 'properties': {'id': {'type': 'integer'}, 'username': {'type': 'string'}}})
+    @extend_schema_field({'type': 'object', 'nullable': True, 'properties': {'id': {'type': 'integer'}, 'username': {'type': 'string'}, 'full_name': {'type': 'string'}}})
     def get_assignee_detail(self, obj):
         return self._user_brief(obj.assignee)
 
