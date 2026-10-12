@@ -28,8 +28,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: {}
+                $ref: '#/components/schemas/MessageResponse'
           description: ''
   /api/v1/accounts/login/:
     post:
@@ -56,8 +55,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: {}
+                $ref: '#/components/schemas/LoginResponse'
           description: ''
   /api/v1/accounts/logout/:
     post:
@@ -83,8 +81,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: {}
+                $ref: '#/components/schemas/MessageResponse'
           description: ''
   /api/v1/accounts/me/:
     get:
@@ -163,8 +160,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: {}
+                $ref: '#/components/schemas/RegisterResponse'
           description: ''
   /api/v1/accounts/token/refresh/:
     post:
@@ -195,7 +191,7 @@ paths:
           description: ''
   /api/v1/accounts/users/:
     get:
-      operationId: v1_accounts_users_retrieve
+      operationId: v1_accounts_users_list
       description: Search active users by name or username (for member / assignee
         pickers).
       parameters:
@@ -213,8 +209,9 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: {}
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserSummary'
           description: ''
   /api/v1/dashboard/:
     get:
@@ -1789,6 +1786,19 @@ components:
           writeOnly: true
       required:
       - password
+    LoginResponse:
+      type: object
+      properties:
+        access:
+          type: string
+        refresh:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+      required:
+      - access
+      - refresh
+      - user
     Logout:
       type: object
       properties:
@@ -1796,6 +1806,13 @@ components:
           type: string
       required:
       - refresh
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+      - message
     NullEnum:
       enum:
       - null
@@ -2028,6 +2045,7 @@ components:
           readOnly: true
         is_archived:
           type: boolean
+          readOnly: true
         my_role:
           nullable: true
           readOnly: true
@@ -2150,6 +2168,7 @@ components:
           readOnly: true
         is_archived:
           type: boolean
+          readOnly: true
         my_role:
           nullable: true
           readOnly: true
@@ -2160,6 +2179,7 @@ components:
       - created_at
       - created_by
       - id
+      - is_archived
       - key
       - my_role
       - name
@@ -2250,6 +2270,16 @@ components:
         * `PROJECT_MANAGER` - Project Manager
         * `TEAM_MEMBER` - Team Member
         * `VIEWER` - Viewer
+    RegisterResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+      required:
+      - message
+      - user
     Registration:
       type: object
       properties:
@@ -2417,6 +2447,19 @@ components:
         * `ADMIN` - Administrator
         * `PROJECT_MANAGER` - Project Manager
         * `TEAM_MEMBER` - Team Member
+    UserSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        full_name:
+          type: string
+      required:
+      - full_name
+      - id
+      - username
   securitySchemes:
     jwtAuth:
       type: http

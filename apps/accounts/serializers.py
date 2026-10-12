@@ -36,6 +36,27 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class UserSummarySerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    username = serializers.CharField()
+    full_name = serializers.CharField()
+
+
+class LoginResponseSerializer(serializers.Serializer):
+    access = serializers.CharField()
+    refresh = serializers.CharField()
+    user = UserSerializer()
+
+
+class RegisterResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()
+    user = UserSerializer()
+
+
+class MessageResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()
+
+
 class RegistrationSerializer(serializers.Serializer):
     full_name = serializers.CharField(max_length=150)
     email = serializers.EmailField(max_length=254)

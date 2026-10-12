@@ -41,6 +41,7 @@ class ProjectSerializer(serializers.ModelSerializer):
             'created_by',
             'created_at',
             'updated_at',
+            'is_archived',
         ]
 
         # Uniqueness is checked in validate_key() so it is case-insensitive
