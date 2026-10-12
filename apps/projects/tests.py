@@ -691,6 +691,20 @@ class ProjectKeyValidationTestCase(APITestCase):
             'already exists',
             response.data['errors']['key'][0],
         )
+
+
+        for key in ['demo', 'DEMO']:
+            with self.subTest(key=key):
+                response = self.create(key)
+
+                self.assertEqual(
+                    response.status_code, status.HTTP_400_BAD_REQUEST,
+                )
+                self.assertEqual(
+                    response.data['errors']['key'],
+                    ['A project with this key already exists.'],
+                )
+
         self.assertEqual(Project.objects.filter(key='DEMO').count(), 1)
 
     def test_patching_with_the_same_key_is_allowed(self):
