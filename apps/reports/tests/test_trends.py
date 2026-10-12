@@ -256,6 +256,9 @@ class TrendsTests(TrendsTestCase):
 
     def test_week_interval_counts_completions(self):
         issue = self.make_issue()
+        # Pin creation to an earlier week: make_issue() stamps "now", which
+        # lands inside the queried week once the real date reaches it.
+        self.set_created_at(issue, utc(2026, 10, 1))
         self.complete_issue(issue, utc(2026, 10, 14))  # Wednesday
 
         points = self.points(

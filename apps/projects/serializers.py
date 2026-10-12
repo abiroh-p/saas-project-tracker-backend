@@ -43,6 +43,10 @@ class ProjectSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
 
+        # Uniqueness is checked in validate_key() so it is case-insensitive
+        # and always produces the same message.
+        extra_kwargs = {'key': {'validators': []}}
+
     @extend_schema_field(
         serializers.ChoiceField(
             choices=ProjectMember.Role.choices,
