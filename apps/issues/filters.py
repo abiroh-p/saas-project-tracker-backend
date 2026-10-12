@@ -53,6 +53,25 @@ ORDERING_CHOICES = [
 DEFAULT_ORDERING = ('-created_at', '-id')
 
 
+def issue_key_parts(term):
+    """Split a full issue key such as `API-12` into `('API', 12)`.
+
+    Returns None when `term` is not a key or the number cannot exist.
+    """
+    match = _ISSUE_KEY_PATTERN.match(term)
+
+    if match is None:
+        return None
+
+    prefix, number = match.groups()
+    number = int(number)
+
+    if not 1 <= number <= MAX_DB_INTEGER:
+        return None
+
+    return prefix, number
+
+
 def issue_number_from_key(term, project_key):
     """Return the issue number if `term` is a full issue key of this project.
 
@@ -62,19 +81,14 @@ def issue_number_from_key(term, project_key):
     number. Matching is case-insensitive and exact: `API-1` does not match
     `API-10`.
     """
-    match = _ISSUE_KEY_PATTERN.match(term)
+    parts = issue_key_parts(term)
 
-    if match is None:
+    if parts is None:
         return None
 
-    prefix, number = match.groups()
+    prefix, number = parts
 
     if prefix.upper() != project_key.upper():
-        return None
-
-    number = int(number)
-
-    if not 1 <= number <= MAX_DB_INTEGER:
         return None
 
     return number
@@ -94,7 +108,19 @@ def _parse_iso_date(name, value):
         )
 
 
-def _parse_assignee(value):
+def _parse_assignee(value, user):
+    """Translate the `assignee` parameter into queryset filter kwargs.
+
+    Accepts a user id, `me` (the requester) or `unassigned`.
+    """
+    keyword = value.strip().lower()
+
+    if keyword == 'me':
+        return {'assignee_id': user.pk}
+
+    if keyword == 'unassigned':
+        return {'assignee__isnull': True}
+
     try:
         assignee_id = int(value)
     except (TypeError, ValueError):
@@ -103,7 +129,19 @@ def _parse_assignee(value):
     if not 1 <= assignee_id <= MAX_DB_INTEGER:
         raise QueryParamError('Invalid assignee filter.')
 
-    return assignee_id
+    return {'assignee_id': assignee_id}
+
+
+def _parse_project(value):
+    try:
+        project_id = int(value)
+    except (TypeError, ValueError):
+        raise QueryParamError('Invalid project filter.')
+
+    if not 1 <= project_id <= MAX_DB_INTEGER:
+        raise QueryParamError('Invalid project filter.')
+
+    return project_id
 
 
 def _ordering_expressions(value):
@@ -137,8 +175,14 @@ def _ordering_expressions(value):
     return (primary, tie_breaker)
 
 
-def apply_issue_filters(issues, params, project):
+def apply_issue_filters(issues, params, project=None, *, user):
     """Return `issues` narrowed and ordered by the query parameters.
+
+    `project` is the project the list is scoped to. Pass None for the
+    cross-project list: issue keys are then matched against every project in
+    `issues`, and the optional `project` parameter narrows it to one. When a
+    project is given the `project` parameter is ignored, because the URL
+    already decides it. `user` is the requester, used for `assignee=me`.
 
     Raises QueryParamError (a 400 for the client) for any invalid value.
     """
@@ -146,6 +190,7 @@ def apply_issue_filters(issues, params, project):
     priority_value = params.get('priority')
     issue_type_value = params.get('issue_type')
     assignee_value = params.get('assignee')
+    project_value = params.get('project')
     due_before_value = params.get('due_before')
     due_after_value = params.get('due_after')
     ordering_value = params.get('ordering')
@@ -160,7 +205,15 @@ def apply_issue_filters(issues, params, project):
     if issue_type_value and issue_type_value not in Issue.IssueType.values:
         raise QueryParamError('Invalid issue type filter.')
 
-    assignee_id = _parse_assignee(assignee_value) if assignee_value else None
+    assignee_filter = (
+        _parse_assignee(assignee_value, user) if assignee_value else None
+    )
+
+    project_id = (
+        _parse_project(project_value)
+        if project is None and project_value
+        else None
+    )
 
     search = get_search_term(params)
 
@@ -186,10 +239,21 @@ def apply_issue_filters(issues, params, project):
 
     if search:
         match = Q(title__icontains=search) | Q(description__icontains=search)
-        number = issue_number_from_key(search, project.key)
 
-        if number is not None:
-            match |= Q(issue_number=number)
+        if project is not None:
+            number = issue_number_from_key(search, project.key)
+
+            if number is not None:
+                match |= Q(issue_number=number)
+        else:
+            parts = issue_key_parts(search)
+
+            if parts is not None:
+                prefix, number = parts
+                match |= Q(
+                    project__key=prefix.upper(),
+                    issue_number=number,
+                )
 
         issues = issues.filter(match)
 
@@ -202,8 +266,11 @@ def apply_issue_filters(issues, params, project):
     if issue_type_value:
         issues = issues.filter(issue_type=issue_type_value)
 
-    if assignee_id is not None:
-        issues = issues.filter(assignee_id=assignee_id)
+    if assignee_filter is not None:
+        issues = issues.filter(**assignee_filter)
+
+    if project_id is not None:
+        issues = issues.filter(project_id=project_id)
 
     if due_before:
         issues = issues.filter(due_date__lte=due_before)

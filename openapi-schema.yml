@@ -236,6 +236,126 @@ paths:
               schema:
                 $ref: '#/components/schemas/Dashboard'
           description: ''
+  /api/v1/issues/:
+    get:
+      operationId: issue_list
+      description: Non-archived issues of every non-archived project the authenticated
+        user is a member of (any role), with the same search, filters, ordering and
+        pagination as the per-project list. A search for an issue key such as `API-12`
+        matches that issue in its own project. Use `project` to narrow to one project
+        and `assignee=me` for "my issues".
+      parameters:
+      - in: query
+        name: assignee
+        schema:
+          type: string
+        description: 'Only issues assigned to this user: a user id (a positive integer),
+          `me` for the requester, or `unassigned` for issues with no assignee. An
+          invalid value returns 400 with code `bad_request`.'
+      - in: query
+        name: due_after
+        schema:
+          type: string
+          format: date
+        description: Only issues due on or after this date (YYYY-MM-DD). Issues without
+          a due date are excluded. It cannot be later than `due_before`. An invalid
+          value returns 400 with code `bad_request`.
+      - in: query
+        name: due_before
+        schema:
+          type: string
+          format: date
+        description: Only issues due on or before this date (YYYY-MM-DD). Issues without
+          a due date are excluded. An invalid value returns 400 with code `bad_request`.
+      - in: query
+        name: issue_type
+        schema:
+          type: string
+          enum:
+          - BUG
+          - EPIC
+          - STORY
+          - TASK
+        description: Only issues of this type. An invalid value returns 400 with code
+          `bad_request`.
+      - in: query
+        name: ordering
+        schema:
+          type: string
+          enum:
+          - -created_at
+          - -due_date
+          - -issue_number
+          - -priority
+          - -title
+          - -updated_at
+          - created_at
+          - due_date
+          - issue_number
+          - priority
+          - title
+          - updated_at
+        description: Sort field; prefix with `-` for descending. A single field only.
+          Priority sorts by urgency, title ignores case, and issues without a due
+          date always come last. Ties are broken by id. Defaults to newest first (`-created_at`).
+          An invalid value returns 400 with code `bad_request`.
+      - in: query
+        name: page
+        schema:
+          type: integer
+        description: Page number, starting at 1.
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+        description: Results per page (default 20, capped at 100).
+      - in: query
+        name: priority
+        schema:
+          type: string
+          enum:
+          - HIGH
+          - LOW
+          - MEDIUM
+          - URGENT
+        description: Only issues with this priority. An invalid value returns 400
+          with code `bad_request`.
+      - in: query
+        name: project
+        schema:
+          type: integer
+        description: Only issues of the project with this id (a positive integer).
+          A project the requester is not a member of simply matches nothing. An invalid
+          value returns 400 with code `bad_request`.
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Case-insensitive text search over the issue title and description,
+          and over the issue key (an exact key such as `API-12`). Up to 100 characters;
+          an empty value means no search. Combined with the other filters using AND.
+      - in: query
+        name: status
+        schema:
+          type: string
+          enum:
+          - DONE
+          - IN_PROGRESS
+          - IN_REVIEW
+          - TODO
+        description: Only issues with this status. An invalid value returns 400 with
+          code `bad_request`.
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedIssue'
+          description: ''
   /api/v1/issues/{issue_id}/:
     get:
       operationId: v1_issues_retrieve
@@ -732,9 +852,10 @@ paths:
       - in: query
         name: assignee
         schema:
-          type: integer
-        description: Only issues assigned to the user with this id (a positive integer).
-          An invalid value returns 400 with code `bad_request`.
+          type: string
+        description: 'Only issues assigned to this user: a user id (a positive integer),
+          `me` for the requester, or `unassigned` for issues with no assignee. An
+          invalid value returns 400 with code `bad_request`.'
       - in: query
         name: due_after
         schema:
@@ -1578,6 +1699,8 @@ components:
               type: integer
             username:
               type: string
+            full_name:
+              type: string
           readOnly: true
         assignee_detail:
           type: object
@@ -1586,6 +1709,8 @@ components:
             id:
               type: integer
             username:
+              type: string
+            full_name:
               type: string
           readOnly: true
         due_date:
@@ -1815,6 +1940,8 @@ components:
               type: integer
             username:
               type: string
+            full_name:
+              type: string
           readOnly: true
         assignee_detail:
           type: object
@@ -1823,6 +1950,8 @@ components:
             id:
               type: integer
             username:
+              type: string
+            full_name:
               type: string
           readOnly: true
         due_date:

@@ -1,3 +1,4 @@
+from django.db.models import Exists, OuterRef
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from django.shortcuts import get_object_or_404
@@ -11,7 +12,7 @@ from config.query_params import QueryParamError, SEARCH_MAX_LENGTH
 from config.responses import api_error
 from config.schema import paginated
 
-from apps.projects.models import Project
+from apps.projects.models import Project, ProjectMember
 from apps.projects.services.membership import (
     get_project_membership,
 )
@@ -29,6 +30,9 @@ from .services.issue import (
     transition_issue,
 )
 
+
+# One shared class, so the schema has a single `PaginatedIssue` component.
+ISSUE_PAGE = paginated(IssueSerializer)
 
 _BAD_REQUEST = 'An invalid value returns 400 with code `bad_request`.'
 
@@ -67,11 +71,12 @@ ISSUE_LIST_PARAMETERS = [
     ),
     OpenApiParameter(
         name='assignee',
-        type=int,
+        type=str,
         required=False,
         description=(
-            'Only issues assigned to the user with this id (a positive '
-            f'integer). {_BAD_REQUEST}'
+            'Only issues assigned to this user: a user id (a positive '
+            'integer), `me` for the requester, or `unassigned` for issues '
+            f'with no assignee. {_BAD_REQUEST}'
         ),
     ),
     OpenApiParameter(
@@ -121,6 +126,86 @@ ISSUE_LIST_PARAMETERS = [
 ]
 
 
+GLOBAL_ISSUE_LIST_PARAMETERS = [
+    OpenApiParameter(
+        name='project',
+        type=int,
+        required=False,
+        description=(
+            'Only issues of the project with this id (a positive integer). '
+            'A project the requester is not a member of simply matches '
+            f'nothing. {_BAD_REQUEST}'
+        ),
+    ),
+    *ISSUE_LIST_PARAMETERS,
+]
+
+
+class IssueListView(APIView):
+    """Issues across every project the requester belongs to."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id='issue_list',
+        description=(
+            'Non-archived issues of every non-archived project the '
+            'authenticated user is a member of (any role), with the same '
+            'search, filters, ordering and pagination as the per-project '
+            'list. A search for an issue key such as `API-12` matches that '
+            'issue in its own project. Use `project` to narrow to one '
+            'project and `assignee=me` for "my issues".'
+        ),
+        parameters=GLOBAL_ISSUE_LIST_PARAMETERS,
+        responses=ISSUE_PAGE,
+    )
+    def get(self, request):
+        # EXISTS rather than a join, so a project with many members can never
+        # repeat an issue.
+        is_member = ProjectMember.objects.filter(
+            project=OuterRef('project'),
+            user=request.user,
+        )
+
+        issues = (
+            Issue.objects
+            .filter(
+                is_archived=False,
+                project__is_archived=False,
+            )
+            .filter(Exists(is_member))
+            .select_related(
+                'project',
+                'reporter',
+                'assignee',
+            )
+        )
+
+        try:
+            issues = apply_issue_filters(
+                issues,
+                request.query_params,
+                user=request.user,
+            )
+        except QueryParamError as exc:
+            return api_error(
+                str(exc),
+                'bad_request',
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        paginator = IssuePagination()
+        page = paginator.paginate_queryset(
+            issues,
+            request,
+            view=self,
+        )
+
+        return paginator.get_paginated_response(
+            IssueSerializer(page, many=True).data
+        )
+
+
 class ProjectIssueListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -135,7 +220,7 @@ class ProjectIssueListCreateView(APIView):
 
     @extend_schema(
         parameters=ISSUE_LIST_PARAMETERS,
-        responses=paginated(IssueSerializer),
+        responses=ISSUE_PAGE,
     )
     def get(self, request, project_id):
         project = self.get_project(project_id, request.user)
@@ -158,6 +243,7 @@ class ProjectIssueListCreateView(APIView):
                 issues,
                 request.query_params,
                 project,
+                user=request.user,
             )
         except QueryParamError as exc:
             return api_error(
