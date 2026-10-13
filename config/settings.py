@@ -19,6 +19,18 @@ from django.core.exceptions import ImproperlyConfigured
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
+
+def env_bool(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def env_list(name):
+    return [item.strip() for item in os.getenv(name, '').split(',') if item.strip()]
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
@@ -30,22 +42,25 @@ if not SECRET_KEY:
     )
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DJANGO_DEBUG', 'False').strip().lower() in {
-    '1',
-    'true',
-    'yes',
-    'on',
-}
+DEBUG = env_bool('DJANGO_DEBUG', False)
 
-ALLOWED_HOSTS = [
-    host for host in os.getenv('DJANGO_ALLOWED_HOSTS', '').split(',') if host
-]
+# Comma-separated. Behind the web container's /api proxy the Host header is the API's own internal
+# name (e.g. "api"), so list that too, plus any public host names.
+ALLOWED_HOSTS = env_list('DJANGO_ALLOWED_HOSTS')
 
+# The deployed frontend is same-origin, so CORS is only needed for local `ng serve` on another port.
+# Extra origins can be added without a code change.
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:4200",
     "http://127.0.0.1:4200",
     "http://[::1]:4200",
-]
+] + env_list('DJANGO_CORS_ALLOWED_ORIGINS')
+
+# Needed for admin/CSRF-protected views over HTTPS, e.g. "https://app.example.com".
+CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_TRUSTED_ORIGINS')
+
+# Interactive API docs and the raw schema are public API surface; off unless explicitly enabled.
+ENABLE_API_DOCS = env_bool('DJANGO_ENABLE_API_DOCS', DEBUG)
 
 
 # Application definition
@@ -72,7 +87,10 @@ INSTALLED_APPS = [
 AUTH_USER_MODEL = "accounts.User"
 
 MIDDLEWARE = [
+    # First on purpose: answers probe requests before host validation, SSL redirect, etc.
+    'config.middleware.HealthCheckMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -113,6 +131,10 @@ DATABASES = {
         "PASSWORD": os.getenv("DB_PASSWORD"),
         "HOST": os.getenv("DB_HOST", "localhost"),
         "PORT": os.getenv("DB_PORT", "5432"),
+        # Azure Database for PostgreSQL requires TLS: set DB_SSLMODE=require there.
+        "OPTIONS": {"sslmode": os.getenv("DB_SSLMODE", "prefer")},
+        "CONN_MAX_AGE": int(os.getenv("DB_CONN_MAX_AGE", "60")),
+        "CONN_HEALTH_CHECKS": True,
     }
 }
 
@@ -152,14 +174,25 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
+}
 
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
+# The API does not send email today. Console output in development, nothing in production.
+# Swap in a real backend here when a feature (e.g. password reset) needs one.
 MAILERS = {
     'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+        'BACKEND': (
+            'django.core.mail.backends.console.EmailBackend'
+            if DEBUG
+            else 'django.core.mail.backends.dummy.EmailBackend'
+        ),
     },
 }
 
@@ -169,6 +202,16 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "EXCEPTION_HANDLER": "config.exceptions.custom_exception_handler",
+    # Applied per view via ScopedRateThrottle (see apps.accounts.views).
+    "DEFAULT_THROTTLE_RATES": {
+        "login": os.getenv("DRF_THROTTLE_LOGIN", "10/min"),
+        "register": os.getenv("DRF_THROTTLE_REGISTER", "5/min"),
+    },
+    # Number of reverse proxies in front of gunicorn (Azure ingress -> nginx = 2). Leave unset until
+    # verified, otherwise clients could spoof X-Forwarded-For to dodge throttles.
+    "NUM_PROXIES": (
+        int(os.environ["DRF_NUM_PROXIES"]) if os.getenv("DRF_NUM_PROXIES") else None
+    ),
 }
 
 SPECTACULAR_SETTINGS = {
@@ -184,4 +227,51 @@ SPECTACULAR_SETTINGS = {
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+}
+
+
+# Shared cache for request throttling. The default per-process cache would give every gunicorn worker
+# and replica its own counter, multiplying the effective limit. Create the table once with
+# `python manage.py createcachetable` (the container's migrate step does this).
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "django_cache",
+    }
+}
+
+# Production security. HTTPS enforcement is an explicit switch: the production container image sets
+# DJANGO_ENFORCE_HTTPS=true, while local runs and the test suite stay plain HTTP by default.
+ENFORCE_HTTPS = env_bool('DJANGO_ENFORCE_HTTPS', False)
+
+if env_bool('DJANGO_BEHIND_PROXY', ENFORCE_HTTPS):
+    # The TLS-terminating proxy (Azure ingress -> nginx) sets X-Forwarded-Proto; trust it only here.
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+SECURE_SSL_REDIRECT = ENFORCE_HTTPS
+SESSION_COOKIE_SECURE = ENFORCE_HTTPS
+CSRF_COOKIE_SECURE = ENFORCE_HTTPS
+# Start low: HSTS is sticky in browsers. Raise to 31536000 once HTTPS is confirmed stable.
+SECURE_HSTS_SECONDS = int(os.getenv('DJANGO_HSTS_SECONDS', '3600' if ENFORCE_HTTPS else '0'))
+# We do not control every subdomain of the platform's default domain, so these stay off.
+# The API sends no email, so the "development-only email backend" deploy error (mail.E001) is moot;
+# remove it from this list as soon as a feature needs real email and a production backend is set.
+SILENCED_SYSTEM_CHECKS = ['security.W005', 'security.W021', 'mail.E001']
+
+# Logging: one JSON object per line on stdout, which Azure Container Apps ships to Log Analytics.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {'json': {'()': 'config.logging.JsonFormatter'}},
+    'handlers': {
+        'console': {'class': 'logging.StreamHandler', 'formatter': 'json'},
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': os.getenv('DJANGO_LOG_LEVEL', 'INFO'),
+    },
+    'loggers': {
+        'django.request': {'handlers': ['console'], 'level': 'WARNING', 'propagate': False},
+        'django.security': {'handlers': ['console'], 'level': 'WARNING', 'propagate': False},
+    },
 }

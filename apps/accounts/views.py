@@ -4,6 +4,7 @@ from django.db.models import Q
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -24,6 +25,8 @@ from .serializers import (
 
 
 class RegistrationView(APIView):
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "register"
 
     @extend_schema(request=RegistrationSerializer, responses={201: RegisterResponseSerializer})
     def post(self, request):
@@ -42,6 +45,9 @@ class RegistrationView(APIView):
 
 
 class LoginView(APIView):
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "login"
+
     @extend_schema(request=LoginSerializer, responses={200: LoginResponseSerializer})
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
